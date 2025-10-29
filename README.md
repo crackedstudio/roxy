@@ -1,257 +1,417 @@
-Roxy-client github: https://github.com/crackedstudio/roxy-client
+```
+# 🦝 Roxy Smart Contracts
 
-## What it does
-Our Prediction Market Game transforms decentralized prediction markets into an engaging, arcade-style gaming experience built on the Linera blockchain. The platform allows players to:
+Roxy is a **fully on-chain, real-time crypto prediction and portfolio management game** built on the **Linera blockchain**.  
+Each player manages a portfolio, predicts market outcomes, and competes in ranked tournaments — all powered by Linera’s **microchain architecture** for speed, scalability, and decentralization.
 
-Predict Multiple-Outcome Events: Players buy shares in different outcomes of events (sports, crypto trends, game scenarios, etc.)
-Trade in Real-Time: Dynamic AMM-style pricing adjusts based on collective player predictions
-Earn Through Gameplay: Win tokens by making accurate predictions, with payouts proportional to shares held
-Progress and Level Up: Gain experience points, unlock achievements, and climb leaderboards
-Form Guilds: Create or join teams to collaborate on predictions and share rewards
-Create Markets: Players can launch their own prediction markets and earn creator fees
-Participate in Oracle Voting: Use reputation scores to vote on event outcomes in community-driven resolution
-Compete Across Market Types:
+> 🎮 **Frontend:** [Roxy Client Repo →](https://github.com/crackedstudio/roxy-client)
 
-Quick Predictions (minutes/hours)
-Tournament Brackets (days)
-Seasonal Events (weeks/months)
-Direct PvP Challenges
+---
 
-The game leverages Linera's microchain architecture, where each player and market runs on its own chain, enabling unprecedented scalability and personalization while maintaining cross-chain synchronization through the Master Game Chain.
+## 🚀 What It Does
 
-## The problem it solves
-1. Prediction Markets are Too Complex
-Traditional prediction markets like Augur or Polymarket are intimidating for casual users. They require deep understanding of DeFi concepts, liquidity provision, and complex trading interfaces. Our solution gamifies the experience, making prediction markets accessible to anyone who enjoys mobile or casual games.
-2. Lack of Engagement and Retention
-Existing platforms treat prediction markets purely as financial instruments, leading to:
+Roxy turns decentralized prediction markets into a **fun, gamified, and social experience**.  
+Players can:
 
-One-time usage patterns
-No progression systems
-Limited social features
-Zero entertainment value beyond speculation
+-   🧩 **Predict Multi-Outcome Events** — from crypto price trends to sports results
+-   ⚡ **Trade in Real-Time** — with dynamic AMM-style pricing based on live demand
+-   🏆 **Earn Through Skill** — accurate predictions yield token rewards
+-   🧗 **Progress and Level Up** — gain XP, unlock badges, and climb leaderboards
+-   🛡️ **Form Guilds** — team up to strategize and share rewards
+-   🧠 **Create Markets** — launch your own markets and earn creator fees
+-   🗳️ **Vote as Oracles** — use reputation scores to resolve market outcomes
 
-We solve this by adding:
+Market types include:
 
-RPG-style progression (levels, XP, achievements)
-Social guilds and leaderboards
-Multiple game modes for different playstyles
-Visual feedback and arcade-style UX
+-   Quick predictions (minutes/hours)
+-   Tournament brackets (days)
+-   Seasonal events (weeks/months)
+-   Direct PvP challenges
 
-3. Scalability Bottlenecks
-Traditional blockchain prediction markets face:
+Each player and market runs on its **own microchain**, synchronized via the **Master Game Chain**, ensuring real-time responsiveness and massive scalability.
 
-High gas fees per trade
-Network congestion during popular events
-Slow transaction finality
-Limited throughput for simultaneous users
+---
 
-Linera's microchain architecture solves this by:
+## 🧩 The Problem It Solves
 
-Giving each player their own chain (instant personal transactions)
-Running each market on its own chain (no congestion)
-Using asynchronous cross-chain messages (parallel processing)
-Eliminating gas fees through Linera's fee-less model
+### 1. Complex Prediction Markets
 
-4. Oracle Problem
-Centralized oracles create single points of failure and trust issues. We implement:
+Traditional platforms like Augur and Polymarket feel technical and inaccessible.  
+**Roxy** simplifies this by blending gaming and DeFi — making prediction markets **as fun as an arcade**.
 
-Community Oracle Voting: Weighted by player reputation
-Hybrid Resolution: Combining votes with automated on-chain data
-Reputation Staking: Accurate voters gain reputation, bad actors lose it
+### 2. Poor Engagement & Retention
 
-5. Poor Token Economics
-Many platforms have extractive models. We create a circular economy:
+Existing markets lack:
 
-Players earn tokens through accurate predictions
-Tokens are spent on market creation and trading
-Market creators earn fees
-Guilds pool resources for collaborative wins
-No external token purchases required to play
+-   Progression systems
+-   Social features
+-   Emotional reward loops
 
-## Challenges I ran into
-1. Linera's Novel Architecture
-Challenge: Linera's microchain model is fundamentally different from traditional blockchains. Understanding how to properly structure applications across multiple chains required rethinking standard smart contract patterns.
-Solution:
+Roxy adds **XP, guilds, leaderboards**, and **visual game design** to make users stay.
 
-Deep dive into Linera's documentation and examples
-Designed a clear separation: Master Chain (coordination) → Market Chains (trading) → Player Chains (personal state)
-Implemented robust cross-chain messaging with proper error handling
+### 3. Scalability Bottlenecks
 
-2. AMM Pricing Without Complex Math
-Challenge: Traditional AMM formulas (like Uniswap's x*y=k) are complex for gaming. We needed simple, intuitive pricing that still felt fair.
-Solution:
+Roxy leverages Linera’s microchains:
 
-Simplified bonding curve: price = base_price × (supply / liquidity)^smoothing_factor
-Easy to understand: more demand = higher price
-Configurable smoothing factor per market type
-Built-in slippage protection
+-   Personal chains for each player (no congestion)
+-   Parallel processing for all markets
+-   Fee-less transactions
+-   Instant finality
 
-5. Oracle Resolution at Scale
-Challenge: How do you resolve thousands of markets fairly without centralization or excessive gas costs?
-Solution:
+### 4. The Oracle Problem
 
-Reputation-weighted voting (not plutocratic)
-Separate Oracle Application for vote aggregation
-Automated resolution for deterministic outcomes
-Hybrid model: community votes + blockchain data
+Roxy uses **community oracle voting** with:
 
-## Technologies I used
-Blockchain & Smart Contracts
+-   Reputation-weighted votes
+-   Hybrid data + community consensus
+-   Staking incentives for accuracy
 
-Linera Blockchain: Core platform for microchain architecture
-Rust: Smart contract language for Linera applications
-linera-sdk: Framework for building Linera applications
-linera-views: On-chain storage abstractions (MapView, RegisterView, RootView)
+### 5. Broken Tokenomics
 
-Smart Contract Components
+Roxy creates a **circular economy**:
 
-RootView: Application state management
-MapView: Key-value storage for markets, players, guilds
-RegisterView: Single-value storage for global config
-Operations: User-initiated actions (synchronous)
-Messages: Cross-chain communication (asynchronous)
+-   Earn tokens via predictions
+-   Spend tokens on trades or market creation
+-   Market creators earn fees
+-   Guilds share collective rewards
 
-AMM & Economics
+---
 
-Custom bonding curve implementation
-Proportional payout calculations
-Fee distribution algorithms
-Token minting/burning mechanisms
+## ⚙️ Technologies Used
 
-Oracle System
+### **Blockchain & Smart Contracts**
 
-Reputation-weighted voting
-Quorum calculations
-Automated data feeds (for deterministic outcomes)
-Multi-signature resolution for disputes
+-   **Linera Blockchain** — scalable microchain-based L1
+-   **Rust** — smart contract language
+-   **linera-sdk** — Linera application framework
+-   **linera-views** — storage abstractions (MapView, RegisterView, RootView)
 
-## How we built it
-Phase 1: Architecture Design
+### **Smart Contract Components**
 
-Studied Linera's Documentation
+-   `RootView` — global app state
+-   `MapView` — market/player/guild storage
+-   `RegisterView` — configuration storage
+-   `Operations` — synchronous user actions
+-   `Messages` — asynchronous cross-chain communications
 
-Understood microchain model
-Learned cross-chain messaging patterns
-Identified optimal state distribution
+### **AMM & Token Economics**
 
+-   Simplified bonding curve (`price = base_price × (supply / liquidity)^factor`)
+-   Proportional payout and slippage protection
+-   Dynamic fee and reward distribution
 
-Designed Data Models
+### **Oracle System**
 
-Market structure with multiple outcomes
-Player progression system
-Guild collaboration mechanics
-Oracle voting framework
+-   Reputation-weighted voting
+-   Quorum and aggregation logic
+-   Hybrid on-chain + community resolution
 
+---
 
-Mapped Cross-Chain Flows
+## 🏗️ How We Built It
 
-Player onboarding flow
-Market creation → trading → resolution
-Leaderboard synchronization
-Guild operations
+### **Phase 1 — Architecture Design**
 
-Phase 2: Core Contract Development
-1. Master Game Application
-rust- GameConfig: Global parameters
-- Market Registry: All active markets
-- Leaderboard: Top players and guilds by points
-- Points Management: Scoring and distribution system
-- Player Registry: All player chains
-- Achievement System: Badge unlocks and rewards
-2. Market Application
-rust- Market State: Outcomes, participation, positions
-- Prediction Tracking: Player choices per outcome
-- Position Recording: Who predicted what and when
-- Resolution Handling: Winner determination and points calculation
-- Bonus Points: Early prediction rewards, accuracy multipliers
-3. Player Application
-rust- Points Balance: Total career points and seasonal points
-- Stats: Win rate, level, reputation, prediction accuracy
-- Positions: Active market participations
-- Achievements: Unlocked badges and milestones
-- Prediction History: All past predictions with outcomes
-4. Oracle Application
-rust- Voting Management: Collect and weight votes
-- Reputation Scoring: Track voter accuracy (impacts voting power)
-- Resolution Triggers: Automated outcome determination
-- Points Distribution: Calculate and award points to winners
+-   Studied Linera microchain patterns and messaging
+-   Designed models for markets, players, guilds, and oracles
+-   Mapped cross-chain flows (player onboarding, market resolution, leaderboards)
 
-Phase 3: Feature Implementation
-Points & Reward System
+### **Phase 2 — Smart Contract Development**
 
-Base points for correct predictions
-Bonus multipliers for early predictions
-Accuracy streaks increase point multipliers
-Difficulty ratings affect point rewards
-Leaderboard position tracking
+#### 1. Master Game Application
 
-Prediction System
+-   Global config, market registry, leaderboard
+-   Player registry, XP and achievement logic
 
-Make predictions on multiple outcomes
-Lock-in predictions before market closes
-Track prediction confidence levels
-Real-time position updates
-Prediction history and analytics
+#### 2. Market Application
 
-Progression System
+-   Market states, outcome tracking, resolution logic
+-   Position recording and reward distribution
 
-XP calculation based on prediction activity
-Level unlocks for new features and markets
-Achievement definitions and checking
-Reputation updates for oracle accuracy
-Seasonal rankings and resets
+#### 3. Player Application
 
-Guild System
+-   Points, stats, reputation, achievements
+-   Prediction history and leaderboard sync
 
-Guild creation with founder privileges
-Member management and invites
-Shared point pools and team rankings
-Collaborative prediction challenges
-Guild vs Guild tournaments
+#### 4. Oracle Application
 
-Oracle & Resolution
+-   Vote collection, reputation scoring, and resolution triggers
 
-Vote submission with reputation weighting
-Quorum checking for valid resolution
-Automated resolution for deterministic outcomes
-Points calculation and distribution to winners
-Accuracy tracking for reputation updates
+### **Phase 3 — Core Features**
 
-Phase 4: Cross-Chain Integration
+-   Points & reward mechanics
+-   Real-time market participation
+-   Level and XP progression
+-   Oracle-based resolution
 
-Implemented message passing between chains
-Created synchronization protocols
-Built event emission for tracking
-Developed error handling for failed messages
+### **Phase 4 — Cross-Chain Integration**
 
-Phase 5: Testing & Optimization
+-   Asynchronous messaging between microchains
+-   Event synchronization and error handling
 
-Unit tests for core functions
-Integration tests for cross-chain flows
+### **Phase 5 — Testing & Optimization**
 
-## What we learned
-Microchain Architecture is Powerful
+-   Unit and integration testing for each module
+-   Validation of market resolution and reward logic
 
-Each user having their own chain eliminates congestion
-Parallel processing is the future of blockchain scalability
-Cross-chain messaging requires careful state management
+---
 
-## What's next for
-1. Frontend Development
+## 🧠 Challenges We Faced
 
-React-based web interface
-Wallet integration (Linera wallet)
-Real-time market updates via WebSocket
-Mobile-responsive design
-Spectator mode with live charts
+1. **Learning Linera’s Novel Architecture**
 
-2. Enhanced Game Modes
+    - Microchains required a new way of thinking about state and coordination.
+    - Solved with modular separation: `Master → Market → Player` chains.
 
-Battle Royale: Last predictor standing wins maximum points
-Prediction Pools: Group predictions on related events with shared rewards
-Chain Predictions: Predict outcomes of sequential events for multiplier bonuses
-Mystery Markets: Hidden outcomes until resolution with higher point rewards
-Speed Rounds: Quick predictions with time-decay point bonuses
+2. **Simplifying AMM Pricing for Gaming**
 
-3. AI Integration
-AI-powered prediction suggestions
+    - Replaced heavy math with an intuitive bonding curve.
+    - Easy to balance gameplay while staying economically sound.
+
+3. **Oracle Resolution at Scale**
+    - Implemented a hybrid approach combining automated feeds and community voting.
+
+---
+
+## 🎓 What We Learned
+
+-   Fully on-chain apps can be **fast, interactive, and scalable** with microchains.
+-   **Cross-chain state** design demands careful message orchestration.
+-   Game mechanics can thrive directly **on-chain** without central servers.
+
+---
+
+## 🔮 What’s Next for Roxy
+
+1. **Frontend Development**
+
+    - React-based UI with Linera wallet support
+    - Real-time updates via WebSocket
+    - Mobile-optimized gameplay
+
+2. **Expanded Game Modes**
+
+    - Battle Royale predictions
+    - Guild vs Guild tournaments
+    - Mystery Markets & Speed Rounds
+
+3. **AI Integration**
+
+    - AI-powered market prediction assistants
+    - Autonomous oracle agents
+
+4. **Mainnet Launch**
+    - Deploy Roxy on Linera mainnet
+    - Community tournaments and seasonal leaderboards
+
+---
+
+## 🏛️ Contract Architecture
+
+Roxy's smart contract system is built on **Linera's microchain architecture** using **Rust** and the **linera-sdk**. The codebase is organized into modular components that handle different aspects of the prediction market game.
+
+### **Core Contract Structure**
+
+The main contract is implemented in `src/contract.rs` as `PredictionMarketContract`, which serves as the central orchestrator for all game operations.
+
+#### **Key Components:**
+
+```rust
+pub struct PredictionMarketContract {
+    state: PredictionMarketState,
+    runtime: ContractRuntime<Self>,
+}
+```
+
+### **State Management (`src/state.rs`)**
+
+The application state is managed through Linera's `RootView` pattern, providing efficient storage and retrieval:
+
+```rust
+#[derive(RootView)]
+pub struct PredictionMarketState {
+    pub config: RegisterView<GameConfig>,
+    pub markets: MapView<MarketId, Market>,
+    pub players: MapView<PlayerId, Player>,
+    pub leaderboard: RegisterView<Leaderboard>,
+    pub guilds: MapView<GuildId, Guild>,
+    pub oracle_votes: MapView<MarketId, OracleVoting>,
+    pub achievements: MapView<AchievementId, Achievement>,
+    pub total_supply: RegisterView<Amount>,
+    pub next_market_id: RegisterView<MarketId>,
+}
+```
+
+**Storage Types:**
+
+-   **`RegisterView`** — Single values (config, leaderboard, counters)
+-   **`MapView`** — Key-value mappings (players, markets, guilds)
+
+### **Data Models**
+
+#### **Core Entities:**
+
+1. **`Player`** — Player profiles with progression data
+
+    - Token balance, XP, level, reputation
+    - Market participation history
+    - Guild membership and achievements
+
+2. **`Market`** — Prediction market instances
+
+    - Multiple outcomes with dynamic pricing
+    - AMM-style liquidity pools
+    - Resolution methods (Oracle, Automated, Creator)
+
+3. **`Guild`** — Social groups for collaborative gameplay
+
+    - Member management and shared pools
+    - Collective profit tracking
+
+4. **`Achievement`** — Progression rewards system
+    - XP and token rewards
+    - Various requirement types
+
+### **Operation Handlers (`src/lib.rs`)**
+
+The contract exposes operations through a comprehensive enum:
+
+```rust
+pub enum Operation {
+    // Player operations
+    RegisterPlayer { display_name: Option<String> },
+    UpdateProfile { display_name: Option<String> },
+    ClaimDailyReward,
+
+    // Market operations
+    CreateMarket { title: String, description: String, ... },
+    BuyShares { market_id: MarketId, outcome_id: OutcomeId, ... },
+    SellShares { market_id: MarketId, outcome_id: OutcomeId, ... },
+
+    // Voting operations
+    VoteOnOutcome { market_id: MarketId, outcome_id: OutcomeId },
+    TriggerResolution { market_id: MarketId },
+    ClaimWinnings { market_id: MarketId },
+
+    // Guild operations
+    CreateGuild { name: String },
+    JoinGuild { guild_id: GuildId },
+    LeaveGuild,
+    ContributeToGuild { amount: Amount },
+
+    // Admin operations
+    UpdateGameConfig { config: GameConfig },
+}
+```
+
+### **Core Game Logic**
+
+#### **1. Player Management**
+
+-   **Registration**: New players receive initial tokens and XP
+-   **Progression**: Level-up system with XP thresholds
+-   **Daily Rewards**: 24-hour cooldown token distribution
+-   **Achievement System**: Automated reward distribution
+
+#### **2. Market Operations**
+
+-   **Creation**: Players pay creation costs to launch markets
+-   **Trading**: AMM-style pricing with slippage protection
+-   **Resolution**: Multiple resolution methods (Oracle voting, automated, creator-decided)
+-   **Payouts**: Proportional distribution to winning positions
+
+#### **3. AMM Pricing Model**
+
+The contract implements a simplified bonding curve for market pricing:
+
+```rust
+// AMM Formula: Share_Price = Base_Price × (Current_Shares_Sold / Total_Supply)^smoothing_factor
+fn calculate_shares_for_amount(&self, market: &Market, outcome_id: OutcomeId, amount: Amount) -> Result<Amount, ContractError>
+```
+
+#### **4. Oracle System**
+
+-   **Reputation-weighted voting** for market resolution
+-   **Quorum requirements** to ensure consensus
+-   **Time-bounded voting periods**
+
+#### **5. Guild System**
+
+-   **Social features** for collaborative gameplay
+-   **Shared token pools** for collective investments
+-   **Guild leaderboards** and profit sharing
+
+### **Error Handling**
+
+Comprehensive error types cover all failure scenarios:
+
+```rust
+pub enum ContractError {
+    Unauthorized,
+    PlayerAlreadyExists,
+    DailyRewardAlreadyClaimed,
+    InvalidOutcomeCount,
+    DurationTooShort,
+    InsufficientBalance,
+    MarketNotActive,
+    MarketEnded,
+    // ... and many more
+}
+```
+
+### **Cross-Chain Messaging**
+
+The contract uses Linera's messaging system for cross-chain communication:
+
+```rust
+pub enum Message {
+    MarketCreated { market_id: MarketId, creator: PlayerId },
+    MarketResolved { market_id: MarketId, winning_outcome: OutcomeId },
+    TradeExecuted { player_id: PlayerId, market_id: MarketId, ... },
+    PlayerLeveledUp { player_id: PlayerId, new_level: u32 },
+    AchievementUnlocked { player_id: PlayerId, achievement_id: AchievementId },
+    GuildCreated { guild_id: GuildId, name: String },
+}
+```
+
+### **Service Layer (`src/service.rs`)**
+
+The GraphQL service provides query capabilities:
+
+```rust
+pub struct PredictiveManagerService {
+    state: PredictionMarketState,
+    runtime: Arc<ServiceRuntime<Self>>,
+}
+```
+
+**Features:**
+
+-   **GraphQL API** for frontend integration
+-   **Real-time queries** for market data
+-   **Player statistics** and leaderboards
+
+### **Key Design Patterns**
+
+1. **Modular Architecture** — Clear separation of concerns
+2. **Immutable State Updates** — All state changes through controlled operations
+3. **Event-Driven Design** — Cross-chain messaging for coordination
+4. **Economic Incentives** — Token-based reward system
+5. **Scalable Storage** — Linera's efficient view system
+
+### **Security Considerations**
+
+-   **Access Control** — Admin-only configuration updates
+-   **Slippage Protection** — Price limits on trades
+-   **Input Validation** — Comprehensive parameter checking
+-   **Economic Safety** — Overflow protection with `saturating_*` operations
+-   **Oracle Security** — Reputation-weighted voting with quorum requirements
+
+This architecture enables Roxy to scale efficiently across Linera's microchain network while maintaining security and providing a rich gaming experience.
+
+---
+
+### 🦝 Built with ❤️ by Cracked Studio
+
+Roxy — where **crypto strategy meets real-time gameplay.**
+```
