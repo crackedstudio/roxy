@@ -45,20 +45,13 @@ pub struct Market {
     pub id: MarketId,
     pub creator: PlayerId,
     pub title: String,
-    pub description: String,
-    pub market_type: MarketType,
-    pub outcomes: Vec<Outcome>,
+    pub amount: Amount, // Amount of points to sell or buy
+    pub fee_percent: u8, // Fee percentage that seller wants to charge (0-100)
     pub creation_time: Timestamp,
-    pub end_time: Timestamp,
-    pub resolution_time: Option<Timestamp>,
     pub status: MarketStatus,
-    pub total_liquidity: Amount,
+    pub total_liquidity: Amount, // Total points available in this market
     pub positions: BTreeMap<PlayerId, PlayerPosition>,
     pub total_participants: u64,
-    pub base_price: Amount,
-    pub smoothing_factor: f64,
-    pub winning_outcome: Option<OutcomeId>,
-    pub resolution_method: ResolutionMethod,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -195,13 +188,17 @@ pub struct Achievement {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AchievementRequirement {
+    CreateMarket,          // Create first market
+    FirstBuy,              // Make first buy
+    FirstSell,             // Make first sell
+    JoinGuild,             // Join a guild
+    ReachLevel(u32),       // Reach specific level (e.g., level 2, 3, 4...)
+    // Legacy requirements (kept for backward compatibility)
     WinMarkets(u64),
     WinStreak(u32),
     TotalProfit(Amount),
     ParticipateInMarkets(u64),
     CreateMarkets(u64),
-    JoinGuild,
-    ReachLevel(u32),
 }
 
 #[derive(RootView)]

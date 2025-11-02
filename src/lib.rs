@@ -36,31 +36,21 @@ pub enum Operation {
     // Market operations
     CreateMarket {
         title: String,
-        description: String,
-        outcome_names: Vec<String>,
-        duration_seconds: u64,
-        resolution_method: ResolutionMethod,
+        amount: Amount,
+        fee_percent: u8, // Fee percentage seller wants to charge (0-100)
     },
     BuyShares {
-        market_id: MarketId,
-        outcome_id: OutcomeId,
+        market_id: MarketId, // Market to buy points from
         amount: Amount,
-        max_price_per_share: Amount,
     },
     SellShares {
-        market_id: MarketId,
-        outcome_id: OutcomeId,
-        shares: Amount,
-        min_price_per_share: Amount,
+        market_id: MarketId, // Market to sell points to
+        amount: Amount,
     },
     
-    // Voting operations
-    VoteOnOutcome {
-        market_id: MarketId,
-        outcome_id: OutcomeId,
-    },
-    TriggerResolution { market_id: MarketId },
-    ClaimWinnings { market_id: MarketId },
+    // Point minting (Admin only)
+    MintPoints { amount: Amount },
+    
     
     // Guild operations
     CreateGuild { name: String },

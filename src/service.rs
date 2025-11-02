@@ -73,7 +73,7 @@ mod tests {
 
     #[test]
     fn query() {
-        let total_supply = Amount::from_tokens(1000);
+        let total_supply = Amount::from_tokens(100000);
         let runtime = Arc::new(ServiceRuntime::<PredictiveManagerService>::new());
         let mut state = PredictionMarketState::load(runtime.root_view_storage_context())
             .blocking_wait()

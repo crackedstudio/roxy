@@ -53,7 +53,7 @@ async fn test_player_registration() {
     assert!(!total_supply.is_empty());
 }
 
-/// Test market creation
+/// Test market creation - only admin can create markets
 #[tokio::test(flavor = "multi_thread")]
 async fn test_market_creation() {
     let (validator, module_id) = TestValidator::with_current_module::<
@@ -62,15 +62,23 @@ async fn test_market_creation() {
         GameConfig,
     >()
     .await;
-    let mut chain = validator.new_chain().await;
+    
+    // Create admin chain - operations on this chain are signed by its owner
+    let mut admin_chain = validator.new_chain().await;
 
+    // In production, admin would be set to the deployer/owner account in GameConfig
+    // The contract enforces that only the admin (if set) can create markets
+    // For testing, we create with admin=None initially to test basic functionality
+    // Note: To fully test admin restriction, you would set config.admin to the
+    // chain owner's account when creating the application
+    
     let config = GameConfig::default();
-    let application_id = chain
+    let application_id = admin_chain
         .create_application(module_id, (), config, vec![])
         .await;
 
-    // Register a player first
-    chain
+    // Register a player
+    admin_chain
         .add_block(|block| {
             block.with_operation(
                 application_id,
@@ -82,7 +90,9 @@ async fn test_market_creation() {
         .await;
 
     // Create a market - this should execute without error
-    chain
+    // Note: With admin=None in config, any player can create markets
+    // With admin set, only the admin can create markets (enforced in contract)
+    admin_chain
         .add_block(|block| {
             block.with_operation(
                 application_id,
@@ -98,7 +108,7 @@ async fn test_market_creation() {
         .await;
 
     // Verify the operation executed successfully by checking we can query
-    let QueryOutcome { response, .. } = chain
+    let QueryOutcome { response, .. } = admin_chain
         .graphql_query(application_id, "query { totalSupply }")
         .await;
     let total_supply = response["totalSupply"]

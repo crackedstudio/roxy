@@ -43,6 +43,7 @@ pub enum ContractError {
     #[error("oracle not ready")] OracleNotReady,
     #[error("not resolved")] NotResolved,
     #[error("no winnings")] NoWinnings,
+    #[error("insufficient level")] InsufficientLevel,
     #[error(transparent)]
     View(#[from] ViewError),
 }
@@ -76,7 +77,16 @@ impl Contract for PredictionMarketContract {
     }
 
     async fn instantiate(&mut self, config: GameConfig) {
-        self.state.config.set(config);
+        // If admin is not set, try to set it to the authenticated signer (deployer)
+        // In production, admin should be set explicitly in GameConfig when creating the application
+        let mut final_config = config;
+        if final_config.admin.is_none() {
+            if let Some(deployer) = self.runtime.authenticated_signer() {
+                final_config.admin = Some(deployer);
+            }
+        }
+        
+        self.state.config.set(final_config);
         self.state.total_supply.set(Amount::ZERO);
         self.state.next_market_id.set(0);
         let _ = self.initialize_achievements().await;
@@ -106,63 +116,41 @@ impl Contract for PredictionMarketContract {
             }
             predictive_manager::Operation::CreateMarket { 
                 title, 
-                description, 
-                outcome_names, 
-                duration_seconds, 
-                resolution_method 
+                amount,
+                fee_percent
             } => {
                 let _ = self.create_market(
                     player_id,
                     title,
-                    description,
-                    MarketType::QuickPrediction,
-                    outcome_names,
-                    duration_seconds,
-                    resolution_method,
+                    amount,
+                    fee_percent,
                     current_time,
                 ).await;
             }
             predictive_manager::Operation::BuyShares { 
-                market_id, 
-                outcome_id, 
-                amount, 
-                max_price_per_share 
+                market_id,
+                amount 
             } => {
                 let _ = self.buy_shares(
                     player_id,
                     market_id,
-                    outcome_id,
                     amount,
-                    max_price_per_share,
                     current_time,
                 ).await;
             }
             predictive_manager::Operation::SellShares { 
-                market_id, 
-                outcome_id, 
-                shares, 
-                min_price_per_share 
+                market_id,
+                amount 
             } => {
                 let _ = self.sell_shares(
                     player_id,
                     market_id,
-                    outcome_id,
-                    shares,
-                    min_price_per_share,
+                    amount,
                     current_time,
                 ).await;
             }
-            predictive_manager::Operation::VoteOnOutcome { 
-                market_id, 
-                outcome_id 
-            } => {
-                let _ = self.vote_on_outcome(player_id, market_id, outcome_id, current_time).await;
-            }
-            predictive_manager::Operation::TriggerResolution { market_id } => {
-                let _ = self.trigger_market_resolution(market_id, current_time).await;
-            }
-            predictive_manager::Operation::ClaimWinnings { market_id } => {
-                let _ = self.claim_winnings(player_id, market_id).await;
+            predictive_manager::Operation::MintPoints { amount } => {
+                let _ = self.mint_points(player_id, amount).await;
             }
             predictive_manager::Operation::CreateGuild { name } => {
                 let _ = self.create_guild(player_id, name, current_time).await;
@@ -211,59 +199,59 @@ impl PredictionMarketContract {
         let achievements = vec![
             Achievement {
                 id: 1,
-                name: "First Steps".to_string(),
-                description: "Make your first prediction".to_string(),
-                reward_tokens: Amount::from_tokens(50),
-                reward_xp: 100,
-                requirement: AchievementRequirement::ParticipateInMarkets(1),
+                name: "Market Creator".to_string(),
+                description: "Create your first market".to_string(),
+                reward_tokens: Amount::from_tokens(100),
+                reward_xp: 200,
+                requirement: AchievementRequirement::CreateMarket,
             },
             Achievement {
                 id: 2,
-                name: "Market Maker".to_string(),
-                description: "Create 5 markets".to_string(),
-                reward_tokens: Amount::from_tokens(200),
-                reward_xp: 500,
-                requirement: AchievementRequirement::CreateMarkets(5),
+                name: "First Buyer".to_string(),
+                description: "Make your first purchase".to_string(),
+                reward_tokens: Amount::from_tokens(50),
+                reward_xp: 100,
+                requirement: AchievementRequirement::FirstBuy,
             },
             Achievement {
                 id: 3,
-                name: "Prediction Master".to_string(),
-                description: "Win 10 markets".to_string(),
-                reward_tokens: Amount::from_tokens(500),
-                reward_xp: 1000,
-                requirement: AchievementRequirement::WinMarkets(10),
+                name: "First Seller".to_string(),
+                description: "Make your first sale".to_string(),
+                reward_tokens: Amount::from_tokens(50),
+                reward_xp: 100,
+                requirement: AchievementRequirement::FirstSell,
             },
             Achievement {
                 id: 4,
-                name: "Hot Streak".to_string(),
-                description: "Win 5 markets in a row".to_string(),
-                reward_tokens: Amount::from_tokens(300),
-                reward_xp: 750,
-                requirement: AchievementRequirement::WinStreak(5),
-            },
-            Achievement {
-                id: 5,
-                name: "Big Spender".to_string(),
-                description: "Earn 1000 points profit".to_string(),
-                reward_tokens: Amount::from_tokens(1000),
-                reward_xp: 2000,
-                requirement: AchievementRequirement::TotalProfit(Amount::from_tokens(1000)),
-            },
-            Achievement {
-                id: 6,
-                name: "Guild Leader".to_string(),
+                name: "Guild Member".to_string(),
                 description: "Join a guild".to_string(),
                 reward_tokens: Amount::from_tokens(150),
                 reward_xp: 300,
                 requirement: AchievementRequirement::JoinGuild,
             },
             Achievement {
-                id: 7,
-                name: "Rising Star".to_string(),
-                description: "Reach level 10".to_string(),
+                id: 5,
+                name: "Level 2 Achiever".to_string(),
+                description: "Reach level 2".to_string(),
+                reward_tokens: Amount::from_tokens(200),
+                reward_xp: 400,
+                requirement: AchievementRequirement::ReachLevel(2),
+            },
+            Achievement {
+                id: 6,
+                name: "Level 3 Achiever".to_string(),
+                description: "Reach level 3".to_string(),
                 reward_tokens: Amount::from_tokens(400),
-                reward_xp: 1000,
-                requirement: AchievementRequirement::ReachLevel(10),
+                reward_xp: 800,
+                requirement: AchievementRequirement::ReachLevel(3),
+            },
+            Achievement {
+                id: 7,
+                name: "Level 5 Achiever".to_string(),
+                description: "Reach level 5".to_string(),
+                reward_tokens: Amount::from_tokens(1000),
+                reward_xp: 2000,
+                requirement: AchievementRequirement::ReachLevel(5),
             },
         ];
         
@@ -387,94 +375,89 @@ impl PredictionMarketContract {
         Ok(())
     }
 
-    /// Create a new prediction market
-    /// Allows players to create markets with multiple outcomes and set resolution method
+    /// Create a new point trading market (Market creators must be level 5+ and have 10,000 points)
+    /// Only players at level 5 or higher with at least 10,000 points can create markets
+    /// Market creation costs 100 points (goes to platform total supply)
+    /// Market creators can set their own fee percentage (0-100%) to earn from trades
     /// 
     /// # Arguments
-    /// * `creator` - The player creating the market
+    /// * `creator` - The player creating the market (must be level 5+ and have 10,000+ points)
     /// * `title` - Market title/name
-    /// * `description` - Detailed description of the market
-    /// * `market_type` - Type of market (QuickPrediction, Tournament, etc.)
-    /// * `outcome_names` - List of possible outcomes (minimum 2)
-    /// * `duration_seconds` - How long the market stays active
-    /// * `resolution_method` - How the market will be resolved (Oracle, Automated, Creator)
+    /// * `amount` - Amount of points available in this market
+    /// * `fee_percent` - Fee percentage market creator wants to charge on trades (0-100)
     /// * `current_time` - Current timestamp for market timing
     /// 
     /// # Returns
     /// * `Ok(())` - Market created successfully
-    /// * `Err(InsufficientBalance)` - Creator doesn't have enough tokens for creation cost
-    /// * `Err(InvalidOutcomeCount)` - Too few or too many outcomes
-    /// * `Err(DurationTooShort)` - Market duration below minimum
+    /// * `Err(InsufficientLevel)` - Player must be at least level 5 to create markets
+    /// * `Err(InsufficientBalance)` - Player must have at least 10,000 points to create markets
     async fn create_market(
         &mut self,
         creator: PlayerId,
         title: String,
-        description: String,
-        market_type: MarketType,
-        outcome_names: Vec<String>,
-        duration_seconds: u64,
-        resolution_method: ResolutionMethod,
+        amount: Amount,
+        fee_percent: u8,
         current_time: Timestamp,
     ) -> Result<(), ContractError> {
-        let config = self.state.config.get();
-        let market_creation_cost = config.market_creation_cost;
+        // Get player - must exist and be registered
         let mut player = self.get_player(&creator).await?;
 
-        if outcome_names.len() < 2 || outcome_names.len() > config.max_outcomes_per_market {
-            return Err(ContractError::InvalidOutcomeCount);
+        // Market creators must be at least level 5
+        if player.level < 5 {
+            return Err(ContractError::InsufficientLevel);
         }
-        if duration_seconds < config.min_market_duration_seconds {
-            return Err(ContractError::DurationTooShort);
-        }
-        if player.token_balance < market_creation_cost {
+
+        // Market creators must have at least 10,000 points
+        let min_points_to_create = Amount::from_tokens(10000);
+        if player.token_balance < min_points_to_create {
             return Err(ContractError::InsufficientBalance);
         }
-        
-        // Deduct market creation cost from player's points (no external transfer needed)
-        
-        player.token_balance = player
-            .token_balance
-            .saturating_sub(market_creation_cost);
-        player.total_spent = player.total_spent.saturating_add(market_creation_cost);
+
+        // Market creation costs 100 points
+        let creation_cost = Amount::from_tokens(100);
+        if player.token_balance < creation_cost {
+            return Err(ContractError::InsufficientBalance);
+        }
+
+        // Validate fee percentage (0-100)
+        if fee_percent > 100 {
+            return Err(ContractError::InvalidOutcome); // Reuse error type for now
+        }
+
+        // Deduct creation cost from player
+        player.token_balance = player.token_balance.saturating_sub(creation_cost);
+        player.total_spent = player.total_spent.saturating_add(creation_cost);
+        self.state.players.insert(&creator, player)?;
+
+        // Distribute market creation fee to platform (100 points goes to total supply)
+        self.distribute_market_creator_fee(creator, creation_cost).await?;
 
         let market_id = self.generate_market_id().await?;
-        let outcomes: Vec<Outcome> = outcome_names
-            .into_iter()
-            .enumerate()
-            .map(|(i, name)| Outcome {
-                id: i as OutcomeId,
-                name,
-                total_shares: Amount::ZERO,
-                current_price: Amount::from_tokens(1),
-            })
-            .collect();
-
-        let end_time = Timestamp::from(current_time.micros() + duration_seconds * 1_000_000);
+        
         let market = Market {
             id: market_id,
             creator,
             title,
-            description,
-            market_type,
-            outcomes,
+            amount,
+            fee_percent,
             creation_time: current_time,
-            end_time,
-            resolution_time: None,
             status: MarketStatus::Active,
-            total_liquidity: Amount::ZERO,
+            total_liquidity: amount,
             positions: BTreeMap::new(),
             total_participants: 0,
-            base_price: Amount::from_tokens(1),
-            smoothing_factor: 1.5,
-            winning_outcome: None,
-            resolution_method,
         };
 
         self.state.markets.insert(&market_id, market)?;
-        self.state.players.insert(&creator, player)?;
 
-        // Distribute market creation fee to creator (if any)
-        self.distribute_market_creator_fee(creator, market_creation_cost).await?;
+        // Update creator's active markets
+        let mut creator_player = self.get_player(&creator).await?;
+        if !creator_player.active_markets.contains(&market_id) {
+            creator_player.active_markets.push(market_id);
+        }
+        self.state.players.insert(&creator, creator_player.clone())?;
+
+        // Check for achievements after creating market
+        self.check_achievements(&mut creator_player).await?;
 
         self
             .runtime
@@ -484,62 +467,90 @@ impl PredictionMarketContract {
         Ok(())
     }
 
-    /// Buy shares in a market outcome
-    /// Allows players to invest tokens in specific outcomes of active markets
+    /// Buy points from a market
+    /// Allows players to buy points from active markets with level-based progressive exchange rate
+    /// Market creator receives fee based on their chosen fee percentage
+    /// Exchange rate scales with player level:
+    /// - Level 1: pay 10 points to get 100 points (10:1 ratio)
+    /// - Level 2: pay 100 points to get 1000 points (10:1 ratio)
     /// 
     /// # Arguments
-    /// * `player_id` - The player buying shares
-    /// * `market_id` - The market to invest in
-    /// * `outcome_id` - Which outcome to buy shares for
-    /// * `amount` - How many tokens to invest
-    /// * `max_price_per_share` - Maximum price willing to pay per share (slippage protection)
-    /// * `current_time` - Current timestamp for market timing
+    /// * `player_id` - The player buying points
+    /// * `market_id` - The market to buy points from
+    /// * `amount` - How many points the player wants to receive
+    /// * `current_time` - Current timestamp
     /// 
     /// # Returns
-    /// * `Ok(())` - Shares purchased successfully
+    /// * `Ok(())` - Points purchased successfully
+    /// * `Err(InsufficientBalance)` - Player doesn't have enough tokens to pay
+    /// * `Err(MarketNotFound)` - Market doesn't exist
     /// * `Err(MarketNotActive)` - Market is not active
-    /// * `Err(MarketEnded)` - Market has already ended
-    /// * `Err(InsufficientBalance)` - Player doesn't have enough tokens
-    /// * `Err(SlippageExceeded)` - Price per share exceeds maximum
     async fn buy_shares(
         &mut self,
         player_id: PlayerId,
         market_id: MarketId,
-        outcome_id: OutcomeId,
         amount: Amount,
-        max_price_per_share: Amount,
         current_time: Timestamp,
     ) -> Result<(), ContractError> {
-        let mut market = self.get_market(&market_id).await?;
         let mut player = self.get_player(&player_id).await?;
+
+        // Get the specific market to buy from
+        let mut market = self.get_market(&market_id).await?;
 
         if market.status != MarketStatus::Active {
             return Err(ContractError::MarketNotActive);
         }
-        if current_time >= market.end_time {
-            return Err(ContractError::MarketEnded);
-        }
-        if outcome_id >= market.outcomes.len() as OutcomeId {
-            return Err(ContractError::InvalidOutcome);
-        }
-        if player.token_balance < amount {
+
+        // Check if market has enough liquidity to sell
+        let points_to_receive = market.total_liquidity.min(amount);
+        if points_to_receive == Amount::ZERO {
             return Err(ContractError::InsufficientBalance);
         }
 
-        // Deduct bet amount from player's points (no external transfer needed)
-
-        let shares = self.calculate_shares_for_amount(&market, outcome_id, amount)?;
-        // Avoid dividing Amount by Amount; compare totals instead
-        if amount > max_price_per_share {
-            return Err(ContractError::SlippageExceeded);
+        // Calculate payment based on progressive exchange (works for all levels 1 to infinity)
+        // Exchange rate is always 10:1 (pay 10% to receive 100%)
+        // Examples:
+        //   Level 1: want 100 points → pay 10 points
+        //   Level 2: want 1000 points → pay 100 points  
+        //   Level 3: want 10000 points → pay 1000 points
+        //   Level N: want X points → pay X/10 points
+        let points_tokens: u128 = points_to_receive.into();
+        let base_payment_tokens = points_tokens.saturating_div(10);
+        let base_payment = Amount::from_tokens(base_payment_tokens);
+        
+        // Calculate fee based on market's fee percentage
+        let fee_divisor = 100_u128;
+        let fee_tokens = base_payment_tokens.saturating_mul(market.fee_percent as u128).saturating_div(fee_divisor);
+        let buyer_fee = Amount::from_tokens(fee_tokens);
+        let actual_payment = base_payment.saturating_add(buyer_fee);
+        
+        // Ensure player has enough to pay (base payment + fee)
+        if player.token_balance < actual_payment {
+            return Err(ContractError::InsufficientBalance);
         }
 
-        market.outcomes[outcome_id as usize].total_shares =
-            market.outcomes[outcome_id as usize]
-                .total_shares
-                .saturating_add(shares);
-        market.total_liquidity = market.total_liquidity.saturating_add(amount);
+        // Player pays base payment + fee
+        player.token_balance = player.token_balance.saturating_sub(actual_payment);
+        player.total_spent = player.total_spent.saturating_add(actual_payment);
+        
+        // Player receives points from the market (transfer from market liquidity to player)
+        player.token_balance = player.token_balance.saturating_add(points_to_receive);
+        player.total_earned = player.total_earned.saturating_add(points_to_receive);
+        
+        // Distribute trading fees: creator gets (base payment + fee), platform gets 2% of creator's fee
+        // First, give market creator the base payment
+        let mut market_creator = self.get_player(&market.creator).await?;
+        market_creator.token_balance = market_creator.token_balance.saturating_add(base_payment);
+        market_creator.total_earned = market_creator.total_earned.saturating_add(base_payment);
+        self.state.players.insert(&market.creator, market_creator)?;
+        
+        // Distribute the fee portion: creator keeps 98%, platform gets 2%
+        self.distribute_trading_fees(market_id, buyer_fee).await?;
+        
+        // Update market liquidity (points available decrease as they're sold)
+        market.total_liquidity = market.total_liquidity.saturating_sub(points_to_receive);
 
+        // Update position
         let position = market
             .positions
             .entry(player_id)
@@ -548,270 +559,164 @@ impl PredictionMarketContract {
                 total_invested: Amount::ZERO,
                 entry_time: current_time,
             });
-        let current_shares = position
-            .shares_by_outcome
-            .get(&outcome_id)
-            .copied()
-            .unwrap_or(Amount::ZERO);
-        position
-            .shares_by_outcome
-            .insert(outcome_id, current_shares.saturating_add(shares));
-        position.total_invested = position.total_invested.saturating_add(amount);
+            position.total_invested = position.total_invested.saturating_add(actual_payment);
 
         if !player.active_markets.contains(&market_id) {
             player.active_markets.push(market_id);
             market.total_participants += 1;
         }
-        player.token_balance = player.token_balance.saturating_sub(amount);
-        player.total_spent = player.total_spent.saturating_add(amount);
+        
         player.markets_participated += 1;
         self.add_experience(&mut player, 10).await?;
 
-        market.outcomes[outcome_id as usize].current_price =
-            self.calculate_current_price(&market, outcome_id)?;
-
         self.state.markets.insert(&market_id, market)?;
-        self.state.players.insert(&player_id, player)?;
+        self.state.players.insert(&player_id, player.clone())?;
 
-        // Distribute trading fees to market creator
-        self.distribute_trading_fees(market_id, amount).await?;
+        // Check for achievements after buying (first buy achievement)
+        self.check_achievements(&mut player).await?;
 
         self
             .runtime
             .prepare_message(Message::TradeExecuted {
                 player_id,
                 market_id,
-                outcome_id,
-                shares,
+                outcome_id: 0,
+                shares: points_to_receive,
+                price: base_payment,
+            })
+            .send_to(self.runtime.chain_id());
+        Ok(())
+    }
+
+    /// Sell points to a market
+    /// Allows players at level 5+ to sell their points to a specific market
+    /// Market creator receives fee based on their chosen fee percentage
+    /// 
+    /// # Arguments
+    /// * `player_id` - The player selling points
+    /// * `market_id` - The market to sell points to
+    /// * `amount` - How many points to sell
+    /// * `current_time` - Current timestamp
+    /// 
+    /// # Returns
+    /// * `Ok(())` - Points sold successfully
+    /// * `Err(InsufficientLevel)` - Player must be at least level 5 to sell
+    /// * `Err(InsufficientBalance)` - Player doesn't have enough points to sell
+    /// * `Err(MarketNotFound)` - Market doesn't exist
+    /// * `Err(MarketNotActive)` - Market is not active
+    async fn sell_shares(
+        &mut self,
+        player_id: PlayerId,
+        market_id: MarketId,
+        amount: Amount,
+        current_time: Timestamp,
+    ) -> Result<(), ContractError> {
+        let mut player = self.get_player(&player_id).await?;
+
+        // Sellers must be at least level 5
+        if player.level < 5 {
+            return Err(ContractError::InsufficientLevel);
+        }
+
+        if player.token_balance < amount {
+            return Err(ContractError::InsufficientBalance);
+        }
+
+        // Get the specific market to sell to
+        let mut market = self.get_market(&market_id).await?;
+
+        if market.status != MarketStatus::Active {
+            return Err(ContractError::MarketNotActive);
+        }
+
+        // Calculate seller fee using the market's fee percentage (set by market creator)
+        let fee_divisor = 100_u128;
+        let amount_tokens: u128 = amount.into();
+        let fee_tokens = amount_tokens.saturating_mul(market.fee_percent as u128).saturating_div(fee_divisor);
+        let seller_fee = Amount::from_tokens(fee_tokens);
+        let points_for_market = amount.saturating_sub(seller_fee);
+        
+        // Burn points from player (decrease their balance)
+        player.token_balance = player.token_balance.saturating_sub(amount);
+        player.total_spent = player.total_spent.saturating_add(amount);
+        
+        // Distribute trading fees: creator gets 98% of fee, platform gets 2% of fee
+        self.distribute_trading_fees(market_id, seller_fee).await?;
+        
+        // Burn points from total supply (net after fee)
+        let current_supply = self.state.total_supply.get();
+        self.state.total_supply.set(current_supply.saturating_sub(points_for_market.min(*current_supply)));
+        
+        // Add liquidity to market (points available increase, minus fee)
+        market.total_liquidity = market.total_liquidity.saturating_add(points_for_market);
+
+        // Update position
+        let position = market
+            .positions
+            .entry(player_id)
+            .or_insert(PlayerPosition {
+                shares_by_outcome: BTreeMap::new(),
+                total_invested: Amount::ZERO,
+                entry_time: current_time,
+            });
+        position.total_invested = position.total_invested.saturating_add(amount);
+
+        if !player.active_markets.contains(&market_id) {
+            player.active_markets.push(market_id);
+            market.total_participants += 1;
+        }
+        
+        player.markets_participated += 1;
+        self.add_experience(&mut player, 10).await?;
+
+        self.state.markets.insert(&market_id, market)?;
+        self.state.players.insert(&player_id, player.clone())?;
+
+        // Check for achievements after selling (first sell achievement)
+        self.check_achievements(&mut player).await?;
+
+        self
+            .runtime
+            .prepare_message(Message::TradeExecuted {
+                player_id,
+                market_id,
+                outcome_id: 0,
+                shares: amount,
                 price: amount,
             })
             .send_to(self.runtime.chain_id());
         Ok(())
     }
 
-    /// Sell shares in a market outcome
-    /// Allows players to sell their existing shares for tokens
+    /// Mint points (Admin only)
+    /// Allows admin to mint more points to the total supply
     /// 
     /// # Arguments
-    /// * `player_id` - The player selling shares
-    /// * `market_id` - The market to sell shares in
-    /// * `outcome_id` - Which outcome to sell shares for
-    /// * `shares` - How many shares to sell
-    /// * `min_price_per_share` - Minimum price willing to accept per share (slippage protection)
-    /// * `current_time` - Current timestamp for market timing
+    /// * `caller` - The player attempting to mint points
+    /// * `amount` - How many points to mint
     /// 
     /// # Returns
-    /// * `Ok(())` - Shares sold successfully
-    /// * `Err(MarketNotActive)` - Market is not active
-    /// * `Err(NoPosition)` - Player has no position in this market
-    /// * `Err(InsufficientShares)` - Player doesn't have enough shares to sell
-    /// * `Err(SlippageExceeded)` - Price per share below minimum
-    async fn sell_shares(
-        &mut self,
-        player_id: PlayerId,
-        market_id: MarketId,
-        outcome_id: OutcomeId,
-        shares: Amount,
-        min_price_per_share: Amount,
-        current_time: Timestamp,
-    ) -> Result<(), ContractError> {
-        let mut market = self.get_market(&market_id).await?;
-        let mut player = self.get_player(&player_id).await?;
-
-        if market.status != MarketStatus::Active {
-            return Err(ContractError::MarketNotActive);
-        }
-
-        let position = market.positions.get(&player_id).ok_or(ContractError::NoPosition)?;
-        let owned_shares = position
-            .shares_by_outcome
-            .get(&outcome_id)
-            .copied()
-            .unwrap_or(Amount::ZERO);
-        if owned_shares < shares {
-            return Err(ContractError::InsufficientShares);
-        }
-
-        let sell_value = self.calculate_sell_value(&market, outcome_id, shares)?;
-        // Avoid dividing Amount by Amount; compare totals instead
-        if sell_value < min_price_per_share {
-            return Err(ContractError::SlippageExceeded);
-        }
-
-        market.outcomes[outcome_id as usize].total_shares =
-            market.outcomes[outcome_id as usize]
-                .total_shares
-                .saturating_sub(shares);
-        market.total_liquidity = market.total_liquidity.saturating_sub(sell_value);
-
-        let position = market.positions.get_mut(&player_id).unwrap();
-        let new_shares = owned_shares.saturating_sub(shares);
-        if new_shares == Amount::ZERO {
-            position.shares_by_outcome.remove(&outcome_id);
-        } else {
-            position.shares_by_outcome.insert(outcome_id, new_shares);
-        }
-
-        // Add sell value to player's points (no external transfer needed)
-
-        player.token_balance = player.token_balance.saturating_add(sell_value);
-        market.outcomes[outcome_id as usize].current_price =
-            self.calculate_current_price(&market, outcome_id)?;
-
-        self.state.markets.insert(&market_id, market)?;
-        self.state.players.insert(&player_id, player)?;
+    /// * `Ok(())` - Points minted successfully
+    /// * `Err(NotAdmin)` - Caller is not the admin
+    async fn mint_points(&mut self, caller: PlayerId, amount: Amount) -> Result<(), ContractError> {
+        let config = self.state.config.get();
         
-        // Distribute trading fees to market creator
-        self.distribute_trading_fees(market_id, sell_value).await?;
-        
-        let _ = current_time; // not used in this minimal implementation
-        Ok(())
-    }
-
-    /// Vote on the outcome of a market
-    /// Allows players to vote on which outcome should win (for OracleVoting resolution)
-    /// 
-    /// # Arguments
-    /// * `voter_id` - The player casting the vote
-    /// * `market_id` - The market to vote on
-    /// * `outcome_id` - Which outcome the player thinks will win
-    /// * `current_time` - Current timestamp for voting period
-    /// 
-    /// # Returns
-    /// * `Ok(())` - Vote cast successfully
-    /// * `Err(MarketNotReadyForVoting)` - Market is not in voting phase
-    /// * `Err(InvalidResolutionMethod)` - Market doesn't use OracleVoting
-    /// * `Err(AlreadyVoted)` - Player has already voted in this market
-    async fn vote_on_outcome(
-        &mut self,
-        voter_id: PlayerId,
-        market_id: MarketId,
-        outcome_id: OutcomeId,
-        current_time: Timestamp,
-    ) -> Result<(), ContractError> {
-        let market = self.get_market(&market_id).await?;
-        let player = self.get_player(&voter_id).await?;
-
-        if market.status != MarketStatus::Closed {
-            return Err(ContractError::MarketNotReadyForVoting);
-        }
-        if !matches!(market.resolution_method, ResolutionMethod::OracleVoting) {
-            return Err(ContractError::InvalidResolutionMethod);
-        }
-
-        let mut voting = if let Some(v) = self.state.oracle_votes.get(&market_id).await? {
-            v
-        } else {
-            let config = self.state.config.get();
-            OracleVoting {
-                market_id,
-                voting_start: current_time,
-                voting_end: Timestamp::from(
-                    current_time.micros() + config.oracle_voting_duration_seconds * 1_000_000,
-                ),
-                votes: BTreeMap::new(),
-                voters: Vec::new(),
-                resolved: false,
+        // Only admin can mint points
+        if let Some(admin) = config.admin {
+            if caller != admin {
+                return Err(ContractError::NotAdmin);
             }
-        };
-
-        if voting.voters.contains(&voter_id) {
-            return Err(ContractError::AlreadyVoted);
+        } else {
+            return Err(ContractError::NotAdmin);
         }
 
-        let vote_weight = player.reputation;
-        let weighted_votes = voting
-            .votes
-            .entry(outcome_id)
-            .or_insert(WeightedVotes { total_weight: 0, voter_count: 0 });
-        weighted_votes.total_weight += vote_weight;
-        weighted_votes.voter_count += 1;
-        voting.voters.push(voter_id);
-        self.state.oracle_votes.insert(&market_id, voting)?;
-        Ok(())
-    }
-
-    /// Trigger the resolution of a market
-    /// Resolves a market after it has ended, determining the winning outcome
-    /// 
-    /// # Arguments
-    /// * `market_id` - The market to resolve
-    /// * `current_time` - Current timestamp for resolution timing
-    /// 
-    /// # Returns
-    /// * `Ok(())` - Market resolved successfully
-    /// * `Err(MarketNotEnded)` - Market hasn't ended yet
-    async fn trigger_market_resolution(
-        &mut self,
-        market_id: MarketId,
-        current_time: Timestamp,
-    ) -> Result<(), ContractError> {
-        let mut market = self.get_market(&market_id).await?;
-        if current_time < market.end_time {
-            return Err(ContractError::MarketNotEnded);
-        }
-        if market.status == MarketStatus::Active {
-            market.status = MarketStatus::Closed;
-            self.state.markets.insert(&market_id, market.clone())?;
-        }
-
-        let winning_outcome = match market.resolution_method {
-            ResolutionMethod::OracleVoting => self.resolve_by_oracle_vote(market_id).await?,
-            ResolutionMethod::Automated => self.resolve_automated(market_id).await?,
-            ResolutionMethod::CreatorDecides => {
-                // Creator must set externally; noop
-                return Ok(())
-            }
-        };
-
-        market.winning_outcome = Some(winning_outcome);
-        market.status = MarketStatus::Resolved;
-        market.resolution_time = Some(current_time);
-        self.state.markets.insert(&market_id, market.clone())?;
-
-        self
-            .runtime
-            .prepare_message(Message::MarketResolved { market_id, winning_outcome })
-            .send_to(self.runtime.chain_id());
-        Ok(())
-    }
-
-    /// Claim winnings from a resolved market
-    /// Allows players to claim their tokens from winning bets
-    /// 
-    /// # Arguments
-    /// * `player_id` - The player claiming winnings
-    /// * `market_id` - The market to claim winnings from
-    /// 
-    /// # Returns
-    /// * `Ok(())` - Winnings claimed successfully
-    /// * `Err(NotResolved)` - Market hasn't been resolved yet
-    /// * `Err(NoWinnings)` - Player has no winning shares in this market
-    async fn claim_winnings(&mut self, player_id: PlayerId, market_id: MarketId) -> Result<(), ContractError> {
-        let market = self.get_market(&market_id).await?;
-        if market.status != MarketStatus::Resolved {
-            return Err(ContractError::NotResolved);
-        }
-        let winning = market.winning_outcome.ok_or(ContractError::NotResolved)?;
-        let position = market.positions.get(&player_id).ok_or(ContractError::NoPosition)?;
-        let shares = position
-            .shares_by_outcome
-            .get(&winning)
-            .copied()
-            .unwrap_or(Amount::ZERO);
-        if shares == Amount::ZERO {
-            return Err(ContractError::NoWinnings);
-        }
-        let mut player = self.get_player(&player_id).await?;
+        // Increase total supply
+        let current_supply = self.state.total_supply.get();
+        self.state.total_supply.set(current_supply.saturating_add(amount));
         
-        // Add winnings to player's points (no external transfer needed)
-        
-        // simplistic: payout equals shares (1:1)
-        player.token_balance = player.token_balance.saturating_add(shares);
-        player.total_earned = player.total_earned.saturating_add(shares);
-        self.state.players.insert(&player_id, player)?;
         Ok(())
     }
+
 
     /// Create a new guild
     /// Allows players to form social groups for collaborative gameplay
@@ -876,7 +781,11 @@ impl PredictionMarketContract {
         guild.members.push(player_id);
         self.state.guilds.insert(&guild_id, guild)?;
         player.guild_id = Some(guild_id);
-        self.state.players.insert(&player_id, player)?;
+        self.state.players.insert(&player_id, player.clone())?;
+        
+        // Check for achievements after joining guild
+        self.check_achievements(&mut player).await?;
+        
         Ok(())
     }
 
@@ -1035,29 +944,16 @@ impl PredictionMarketContract {
     // Market Creator Fee Distribution
     // ============================================================================
     
-    /// Distribute market creation fees to creator and platform
+    /// Distribute market creation fee to platform
+    /// Market creation costs 100 points, which all go to platform total supply
     async fn distribute_market_creator_fee(
         &mut self, 
-        creator: PlayerId, 
-        total_fee: Amount
+        _creator: PlayerId, 
+        creation_fee: Amount
     ) -> Result<(), ContractError> {
-        // Simplified fee distribution: give creator a small portion back
-        let creator_fee_amount = total_fee.saturating_mul(2).saturating_div(Amount::from_tokens(100));
-        let platform_fee_amount = total_fee.saturating_mul(1).saturating_div(Amount::from_tokens(100));
-        
-        // Give creator their fee (add to their balance)
-        if creator_fee_amount > Amount::ZERO.into() {
-            let mut creator_player = self.get_player(&creator).await?;
-            creator_player.token_balance = creator_player.token_balance.saturating_add(Amount::from_tokens(creator_fee_amount));
-            creator_player.total_earned = creator_player.total_earned.saturating_add(Amount::from_tokens(creator_fee_amount));
-            self.state.players.insert(&creator, creator_player)?;
-        }
-        
-        // Platform fee goes to total supply (can be used for rewards, etc.)
-        if platform_fee_amount > Amount::ZERO.into() {
-            let current_supply = self.state.total_supply.get();
-            self.state.total_supply.set(current_supply.saturating_add(Amount::from_tokens(platform_fee_amount)));
-        }
+        // Market creation fee (100 points) goes entirely to platform total supply
+        let current_supply = self.state.total_supply.get();
+        self.state.total_supply.set(current_supply.saturating_add(creation_fee));
         
         // Update leaderboard after fee distribution
         self.update_enhanced_leaderboard().await;
@@ -1066,32 +962,33 @@ impl PredictionMarketContract {
     }
     
     /// Distribute trading fees to market creator and platform
+    /// Platform gets 2% of the creator's fee from each trade
+    /// Creator gets the remaining fee (98% of their fee percentage)
     async fn distribute_trading_fees(
         &mut self,
         market_id: MarketId,
-        trade_amount: Amount
+        creator_fee_amount: Amount
     ) -> Result<(), ContractError> {
         let market = self.get_market(&market_id).await?;
-        let _config = self.state.config.get();
         
-        // Calculate trading fees (smaller percentage than creation fees)
-        let trading_fee = trade_amount.saturating_mul(1).saturating_div(Amount::from_tokens(200));
+        // Platform gets 2% of the creator's fee
+        let platform_fee_percent = 2_u128; // 2% of creator's fee
+        let fee_divisor = 100_u128;
         
-        if trading_fee > Amount::ZERO.into() {
-            // Split between creator and platform
-            let creator_share = trading_fee.saturating_div(Amount::from_tokens(2).into());
-            let platform_share = trading_fee.saturating_sub(creator_share);
-            
-            // Give creator their share
-            let mut creator_player = self.get_player(&market.creator).await?;
-            creator_player.token_balance = creator_player.token_balance.saturating_add(Amount::from_tokens(creator_share));
-            creator_player.total_earned = creator_player.total_earned.saturating_add(Amount::from_tokens(creator_share));
-            self.state.players.insert(&market.creator, creator_player)?;
-            
-            // Add platform share to total supply
-            let current_supply = self.state.total_supply.get();
-            self.state.total_supply.set(current_supply.saturating_add(Amount::from_tokens(platform_share)));
-        }
+        let creator_fee_tokens: u128 = creator_fee_amount.into();
+        let platform_fee_tokens = creator_fee_tokens.saturating_mul(platform_fee_percent).saturating_div(fee_divisor);
+        let platform_fee = Amount::from_tokens(platform_fee_tokens);
+        let creator_keeps = creator_fee_amount.saturating_sub(platform_fee);
+        
+        // Give creator their share (creator's fee minus 2% platform fee)
+        let mut creator_player = self.get_player(&market.creator).await?;
+        creator_player.token_balance = creator_player.token_balance.saturating_add(creator_keeps);
+        creator_player.total_earned = creator_player.total_earned.saturating_add(creator_keeps);
+        self.state.players.insert(&market.creator, creator_player)?;
+        
+        // Add platform fee (2% of creator's fee) to total supply
+        let current_supply = self.state.total_supply.get();
+        self.state.total_supply.set(current_supply.saturating_add(platform_fee));
         
         Ok(())
     }
@@ -1137,116 +1034,42 @@ impl PredictionMarketContract {
         Ok((self.runtime.system_time().micros() & 0xFFFF_FFFF) as u64)
     }
 
-    /// Calculate how many shares a player gets for their investment
-    /// Uses arcade-style AMM pricing: Share_Price = Base_Price × (Current_Shares_Sold / Total_Supply)^smoothing_factor
-    fn calculate_shares_for_amount(
-        &self,
-        market: &Market,
-        outcome_id: OutcomeId,
-        amount: Amount,
-    ) -> Result<Amount, ContractError> {
-        if outcome_id >= market.outcomes.len() as OutcomeId {
-            return Err(ContractError::InvalidOutcome);
-        }
-        
-        let outcome = &market.outcomes[outcome_id as usize];
-        let _current_shares = outcome.total_shares;
-        let total_supply = market.total_liquidity;
-        
-        if total_supply == Amount::ZERO {
-            // First purchase: 1:1 ratio
-            return Ok(amount);
-        }
-        
-        // AMM Formula: Share_Price = Base_Price × (Current_Shares_Sold / Total_Supply)^smoothing_factor
-        let base_price = market.base_price;
-        let smoothing_factor = market.smoothing_factor;
-        
-        // Calculate current price per share using simplified ratio
-        let price_ratio = if total_supply > Amount::ZERO {
-            // Use a simple ratio calculation
-            Amount::from_tokens(1) // Simplified for now
-        } else {
-            Amount::from_tokens(1)
-        };
-        
-        // Apply smoothing factor (simplified calculation)
-        let _adjusted_ratio = if smoothing_factor > 1.0 {
-            // Increase price as more shares are sold
-            price_ratio.saturating_mul((smoothing_factor * 1000.0) as u128)
-        } else {
-            price_ratio
-        };
-        
-        let price_per_share = base_price; // Simplified: use base price directly
-        
-        // Calculate shares received for the amount using simplified logic
-        if price_per_share > Amount::ZERO {
-            // Use a simple 1:1 ratio for now to avoid complex Amount arithmetic
-            Ok(amount)
-        } else {
-        Ok(amount)
-        }
-    }
-
-    /// Calculate the current price per share for an outcome
-    /// Uses AMM formula for dynamic pricing
-    fn calculate_current_price(&self, market: &Market, outcome_id: OutcomeId) -> Result<Amount, ContractError> {
-        if outcome_id >= market.outcomes.len() as OutcomeId {
-            return Err(ContractError::InvalidOutcome);
-        }
-        
-        let outcome = &market.outcomes[outcome_id as usize];
-        let _current_shares = outcome.total_shares;
-        let total_supply = market.total_liquidity;
-        
-        if total_supply == Amount::ZERO {
-            return Ok(market.base_price);
-        }
-        
-        // AMM Formula: Share_Price = Base_Price × (Current_Shares_Sold / Total_Supply)^smoothing_factor
-        let base_price = market.base_price;
-        let smoothing_factor = market.smoothing_factor;
-        
-        let price_ratio = if total_supply > Amount::ZERO {
-            Amount::from_tokens(1) // Simplified for now
-        } else {
-            Amount::from_tokens(1)
-        };
-        
-        // Apply smoothing factor
-        let _adjusted_ratio = if smoothing_factor > 1.0 {
-            price_ratio.saturating_mul((smoothing_factor * 1000.0) as u128)
-        } else {
-            price_ratio
-        };
-        
-        let price_per_share = base_price; // Simplified: use base price directly
-        Ok(price_per_share.max(market.base_price)) // Ensure minimum base price
-    }
-
-    /// Calculate the value received when selling shares
-    /// Helper function for market pricing logic (simplified 1:1 for now)
-    fn calculate_sell_value(
-        &self,
-        _market: &Market,
-        _outcome_id: OutcomeId,
-        shares: Amount,
-    ) -> Result<Amount, ContractError> {
-        Ok(shares)
-    }
 
     /// Add experience points to a player and handle leveling up
-    /// Helper function for player progression system
+    /// Leveling formula:
+    /// - Level 1: needs 1000 total points
+    /// - Level 2: needs 4000 total points (Level 1 max * 4)
+    /// - Level 3: needs 16000 total points (Level 2 max * 4)
+    /// - Formula: total_points_needed = 1000 * (4^(level-1))
+    /// As levels increase, players get more points per action, making it easier to progress
     async fn add_experience(&mut self, player: &mut Player, xp: u64) -> Result<(), ContractError> {
         player.experience_points += xp;
         let old_level = player.level;
-        while player.experience_points >= (player.level as u64) * 100 {
-            player.experience_points -= (player.level as u64) * 100;
-            player.level += 1;
+        
+        // New leveling formula based on total experience points
+        // Level 1: needs 1000 total points
+        // Level 2: needs 4000 total points (1000 * 4)
+        // Level 3: needs 16000 total points (4000 * 4)
+        // Formula: total_points_for_level(N) = 1000 * (4^(N-1))
+        while player.level >= 1 {
+            let current_level = player.level as u64;
+            let total_points_needed = if current_level == 1 {
+                1000 // Level 1 needs 1000 total points
+            } else {
+                1000_u64 * 4_u64.pow((current_level - 1) as u32) // Level N needs 1000 * 4^(N-1)
+            };
+            
+            // Check if player has enough total points for next level
+            if player.experience_points >= total_points_needed {
+                player.level += 1;
+                // Don't subtract - we track total experience points, not incremental
+                // Continue checking if they can level up multiple times
+            } else {
+                break; // Not enough points for next level
+            }
         }
         
-        // Check for level-based achievements
+        // Check for level-based achievements when leveling up
         if player.level > old_level {
             self.check_achievements(player).await?;
         }
@@ -1298,6 +1121,33 @@ impl PredictionMarketContract {
         requirement: &AchievementRequirement
     ) -> Result<bool, ContractError> {
         match requirement {
+            // New achievement requirements
+            AchievementRequirement::CreateMarket => {
+                // Count markets created by this player
+                let mut created_count = 0;
+                for market_id in &player.active_markets {
+                    if let Some(market) = self.state.markets.get(market_id).await? {
+                        if market.creator == player.id {
+                            created_count += 1;
+                        }
+                    }
+                }
+                Ok(created_count >= 1)
+            },
+            AchievementRequirement::FirstBuy => {
+                // Check if player has made at least one buy
+                // Player has participated in markets (bought points from a market)
+                Ok(player.markets_participated > 0)
+            },
+            AchievementRequirement::FirstSell => {
+                // Check if player has sold points
+                // A player has sold if they've spent points (sold points reduce balance)
+                // We can also check if they've participated in markets as a proxy
+                Ok(player.total_spent > Amount::ZERO)
+            },
+            AchievementRequirement::JoinGuild => Ok(player.guild_id.is_some()),
+            AchievementRequirement::ReachLevel(level) => Ok(player.level >= *level),
+            // Legacy requirements (kept for backward compatibility)
             AchievementRequirement::WinMarkets(count) => Ok(player.markets_won >= *count),
             AchievementRequirement::WinStreak(streak) => Ok(player.win_streak >= *streak),
             AchievementRequirement::TotalProfit(profit) => Ok(player.total_profit >= *profit),
@@ -1314,35 +1164,10 @@ impl PredictionMarketContract {
                 }
                 Ok(created_count >= *count)
             },
-            AchievementRequirement::JoinGuild => Ok(player.guild_id.is_some()),
-            AchievementRequirement::ReachLevel(level) => Ok(player.level >= *level),
         }
     }
 
-    /// Resolve a market using oracle voting results
-    /// Helper function for market resolution logic
-    async fn resolve_by_oracle_vote(&mut self, market_id: MarketId) -> Result<OutcomeId, ContractError> {
-        let voting = self
-            .state
-            .oracle_votes
-            .get(&market_id)
-            .await?
-            .ok_or(ContractError::OracleNotReady)?;
-        let mut best: Option<(OutcomeId, u64)> = None;
-        for (oid, w) in voting.votes {
-            if let Some((_, bw)) = best {
-                if w.total_weight > bw { best = Some((oid, w.total_weight)); }
-            } else {
-                best = Some((oid, w.total_weight));
-            }
-        }
-        best.map(|(o, _)| o).ok_or(ContractError::OracleNotReady)
-    }
 
-    /// Resolve a market using automated logic
-    /// Helper function for market resolution logic (placeholder implementation)
-    async fn resolve_automated(&self, _market_id: MarketId) -> Result<OutcomeId, ContractError> {
-        // Placeholder: choose outcome 0
-        Ok(0)
-    }
+    
+
 }
