@@ -201,6 +201,63 @@ pub enum AchievementRequirement {
     CreateMarkets(u64),
 }
 
+// ============================================================================
+// Price Prediction Types
+// ============================================================================
+
+/// Represents the predicted outcome of market price movement
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Copy, async_graphql::Enum)]
+pub enum PriceOutcome {
+    Rise,      // Price increased
+    Fall,      // Price decreased
+    Neutral,   // Price stayed the same
+}
+
+/// Represents the period type for predictions
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Copy)]
+pub enum PredictionPeriod {
+    Daily,    // Daily prediction (24 hours)
+    Weekly,   // Weekly prediction (7 days)
+    Monthly,  // Monthly prediction (30 days)
+}
+
+/// Stores a player's prediction for a specific period
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlayerPrediction {
+    pub player_id: PlayerId,
+    pub period: PredictionPeriod,
+    pub outcome: PriceOutcome,
+    pub prediction_time: Timestamp,
+    pub period_start: Timestamp,  // Start timestamp of the prediction period
+    pub resolved: bool,           // Whether the prediction has been resolved
+    pub correct: Option<bool>,    // None if not resolved, Some(true/false) if resolved
+}
+
+/// Stores market price data at a specific timestamp
+/// Used by oracle/admin to submit actual market prices for verification
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MarketPrice {
+    pub price: Amount,      // Price as an Amount (using token units as price units)
+    pub timestamp: Timestamp,
+}
+
+/// Stores price data for a specific period
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeriodPriceData {
+    pub period_start: Timestamp,
+    pub period_end: Timestamp,
+    pub start_price: Option<MarketPrice>,  // Price at period start
+    pub end_price: Option<MarketPrice>,     // Price at period end
+    pub outcome: Option<PriceOutcome>,      // Calculated outcome based on price change
+    pub resolved: bool,
+}
+
+/// Key for storing predictions: (player_id, period_type, period_start_timestamp)
+pub type PredictionKey = (PlayerId, PredictionPeriod, Timestamp);
+
+/// Key for storing period price data: (period_type, period_start_timestamp)
+pub type PeriodKey = (PredictionPeriod, Timestamp);
+
 #[derive(RootView)]
 #[view(context = ViewStorageContext)]
 pub struct PredictionMarketState {
@@ -213,6 +270,10 @@ pub struct PredictionMarketState {
     pub achievements: MapView<AchievementId, Achievement>,
     pub total_supply: RegisterView<Amount>,
     pub next_market_id: RegisterView<MarketId>,
+    // Price prediction state
+    pub predictions: MapView<String, PlayerPrediction>,  // Key: format!("{player_id}_{period}_{period_start}")
+    pub period_prices: MapView<String, PeriodPriceData>, // Key: format!("{period}_{period_start}")
+    pub current_market_price: RegisterView<MarketPrice>, // Current market price (updated by oracle)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -229,4 +290,6 @@ pub enum Message {
     PlayerLeveledUp { player_id: PlayerId, new_level: u32 },
     AchievementUnlocked { player_id: PlayerId, achievement_id: AchievementId },
     GuildCreated { guild_id: GuildId, name: String },
+    PredictionMade { player_id: PlayerId, period: PredictionPeriod, outcome: PriceOutcome },
+    PredictionResolved { player_id: PlayerId, period: PredictionPeriod, correct: bool },
 }

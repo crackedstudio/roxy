@@ -167,6 +167,18 @@ impl Contract for PredictionMarketContract {
             predictive_manager::Operation::UpdateGameConfig { config } => {
                 let _ = self.update_game_config(player_id, config).await;
             }
+            predictive_manager::Operation::PredictDailyOutcome { outcome } => {
+                let _ = self.predict_daily_outcome(player_id, outcome, current_time).await;
+            }
+            predictive_manager::Operation::PredictWeeklyOutcome { outcome } => {
+                let _ = self.predict_weekly_outcome(player_id, outcome, current_time).await;
+            }
+            predictive_manager::Operation::PredictMonthlyOutcome { outcome } => {
+                let _ = self.predict_monthly_outcome(player_id, outcome, current_time).await;
+            }
+            predictive_manager::Operation::UpdateMarketPrice { price } => {
+                let _ = self.update_market_price(player_id, price, current_time).await;
+            }
         }
     }
 
@@ -178,6 +190,8 @@ impl Contract for PredictionMarketContract {
             Message::PlayerLeveledUp { .. } => {}
             Message::AchievementUnlocked { .. } => {}
             Message::GuildCreated { .. } => {}
+            Message::PredictionMade { .. } => {}
+            Message::PredictionResolved { .. } => {}
         }
     }
 
@@ -1168,6 +1182,734 @@ impl PredictionMarketContract {
     }
 
 
-    
+     // ============================================================================
+    //  Price Prediction Functions 
+    // ============================================================================
+
+    /// The price prediction model predicts the price of real assets market price from crypto price API providers 
+    /// like CoinMarketCap, CoinGecko, etc.
+    /// Players can predict if the market will rise or fall daily, weekly and monthly and earn point tokens 
+    /// based on the accuracy of the prediction.
+    /// 
+    /// IMPORTANT: All price comparisons use data from crypto API providers:
+    /// - Oracle/Admin calls update_market_price() with price from crypto API (CoinMarketCap, CoinGecko, etc.)
+    /// - Initial price is captured from crypto API when period starts
+    /// - End price is captured from crypto API when period ends
+    /// - Player's prediction is compared against actual outcome from crypto API price changes
+    /// 
+    /// The outcome will depend on the change of crypto API price:
+    /// - Rise: end_price > initial_price (crypto API price increased from initial)
+    /// - Fall: end_price < initial_price (crypto API price decreased from initial)
+    /// - Neutral: end_price == initial_price (crypto API price stayed the same as initial)
+
+    /// Make a daily prediction for market price movement
+    /// Players predict if the market price will rise, fall, or stay neutral over the next 24 hours
+    /// 
+    /// # Arguments
+    /// * `player_id` - The player making the prediction
+    /// * `outcome` - The predicted outcome (Rise, Fall, or Neutral)
+    /// * `current_time` - Current timestamp
+    /// 
+    /// # Returns
+    /// * `Ok(())` - Prediction recorded successfully
+    /// * `Err(PlayerNotFound)` - Player doesn't exist
+    async fn predict_daily_outcome(
+        &mut self,
+        player_id: PlayerId,
+        outcome: PriceOutcome,
+        current_time: Timestamp,
+    ) -> Result<(), ContractError> {
+        let _player = self.get_player(&player_id).await?;
+        
+        // Calculate the current day period start (midnight of current day)
+        let period_start = self.get_daily_period_start(current_time);
+        
+        // Check if player already has a prediction for this period
+        let prediction_key = format!("{:?}_{:?}_{}", player_id, PredictionPeriod::Daily, period_start.micros());
+        
+        if self.state.predictions.contains_key(&prediction_key).await? {
+            return Err(ContractError::InvalidOutcome); // Reuse error: already predicted for this period
+        }
+        
+        // Create the prediction
+        let prediction = PlayerPrediction {
+            player_id,
+            period: PredictionPeriod::Daily,
+            outcome,
+            prediction_time: current_time,
+            period_start,
+            resolved: false,
+            correct: None,
+        };
+        
+        // Store the prediction
+        self.state.predictions.insert(&prediction_key, prediction.clone())?;
+        
+        // Initialize period price data if it doesn't exist
+        let period_key = format!("{:?}_{}", PredictionPeriod::Daily, period_start.micros());
+        if !self.state.period_prices.contains_key(&period_key).await? {
+            // Capture the initial market price from crypto API when the period starts
+            // This price comes from crypto API providers (CoinMarketCap, CoinGecko, etc.)
+            // via the update_market_price function called by oracle/admin
+            let initial_price = self.state.current_market_price.get();
+            let period_price_data = PeriodPriceData {
+                period_start,
+                period_end: Timestamp::from(period_start.micros().saturating_add(24 * 60 * 60 * 1_000_000)), // 24 hours later
+                start_price: Some(initial_price.clone()), // Initial crypto API price at period start
+                end_price: None, // Will be set from crypto API when period ends
+                outcome: None,
+                resolved: false,
+            };
+            self.state.period_prices.insert(&period_key, period_price_data)?;
+        }
+        
+        // Send prediction message
+        self.runtime
+            .prepare_message(Message::PredictionMade {
+                player_id,
+                period: PredictionPeriod::Daily,
+                outcome,
+            })
+            .send_to(self.runtime.chain_id());
+        
+        Ok(())
+    }
+
+    /// Make a weekly prediction for market price movement
+    /// Players predict if the market price will rise, fall, or stay neutral over the next 7 days
+    /// 
+    /// # Arguments
+    /// * `player_id` - The player making the prediction
+    /// * `outcome` - The predicted outcome (Rise, Fall, or Neutral)
+    /// * `current_time` - Current timestamp
+    /// 
+    /// # Returns
+    /// * `Ok(())` - Prediction recorded successfully
+    /// * `Err(PlayerNotFound)` - Player doesn't exist
+    async fn predict_weekly_outcome(
+        &mut self,
+        player_id: PlayerId,
+        outcome: PriceOutcome,
+        current_time: Timestamp,
+    ) -> Result<(), ContractError> {
+        let _player = self.get_player(&player_id).await?;
+        
+        // Calculate the current week period start (start of current week)
+        let period_start = self.get_weekly_period_start(current_time);
+        
+        // Check if player already has a prediction for this period
+        let prediction_key = format!("{:?}_{:?}_{}", player_id, PredictionPeriod::Weekly, period_start.micros());
+        
+        if self.state.predictions.contains_key(&prediction_key).await? {
+            return Err(ContractError::InvalidOutcome); // Already predicted for this period
+        }
+        
+        // Create the prediction
+        let prediction = PlayerPrediction {
+            player_id,
+            period: PredictionPeriod::Weekly,
+            outcome,
+            prediction_time: current_time,
+            period_start,
+            resolved: false,
+            correct: None,
+        };
+        
+        // Store the prediction
+        self.state.predictions.insert(&prediction_key, prediction.clone())?;
+        
+        // Initialize period price data if it doesn't exist
+        let period_key = format!("{:?}_{}", PredictionPeriod::Weekly, period_start.micros());
+        if !self.state.period_prices.contains_key(&period_key).await? {
+            // Capture the initial market price from crypto API when the period starts
+            // This price comes from crypto API providers (CoinMarketCap, CoinGecko, etc.)
+            // via the update_market_price function called by oracle/admin
+            let initial_price = self.state.current_market_price.get();
+            let period_price_data = PeriodPriceData {
+                period_start,
+                period_end: Timestamp::from(period_start.micros().saturating_add(7 * 24 * 60 * 60 * 1_000_000)), // 7 days later
+                start_price: Some(initial_price.clone()), // Initial crypto API price at period start
+                end_price: None, // Will be set from crypto API when period ends
+                outcome: None,
+                resolved: false,
+            };
+            self.state.period_prices.insert(&period_key, period_price_data)?;
+        }
+        
+        // Send prediction message
+        self.runtime
+            .prepare_message(Message::PredictionMade {
+                player_id,
+                period: PredictionPeriod::Weekly,
+                outcome,
+            })
+            .send_to(self.runtime.chain_id());
+        
+        Ok(())
+    }
+
+    /// Make a monthly prediction for market price movement
+    /// Players predict if the market price will rise, fall, or stay neutral over the next 30 days
+    /// 
+    /// # Arguments
+    /// * `player_id` - The player making the prediction
+    /// * `outcome` - The predicted outcome (Rise, Fall, or Neutral)
+    /// * `current_time` - Current timestamp
+    /// 
+    /// # Returns
+    /// * `Ok(())` - Prediction recorded successfully
+    /// * `Err(PlayerNotFound)` - Player doesn't exist
+    async fn predict_monthly_outcome(
+        &mut self,
+        player_id: PlayerId,
+        outcome: PriceOutcome,
+        current_time: Timestamp,
+    ) -> Result<(), ContractError> {
+        let _player = self.get_player(&player_id).await?;
+        
+        // Calculate the current month period start (start of current month)
+        let period_start = self.get_monthly_period_start(current_time);
+        
+        // Check if player already has a prediction for this period
+        let prediction_key = format!("{:?}_{:?}_{}", player_id, PredictionPeriod::Monthly, period_start.micros());
+        
+        if self.state.predictions.contains_key(&prediction_key).await? {
+            return Err(ContractError::InvalidOutcome); // Already predicted for this period
+        }
+        
+        // Create the prediction
+        let prediction = PlayerPrediction {
+            player_id,
+            period: PredictionPeriod::Monthly,
+            outcome,
+            prediction_time: current_time,
+            period_start,
+            resolved: false,
+            correct: None,
+        };
+        
+        // Store the prediction
+        self.state.predictions.insert(&prediction_key, prediction.clone())?;
+        
+        // Initialize period price data if it doesn't exist
+        let period_key = format!("{:?}_{}", PredictionPeriod::Monthly, period_start.micros());
+        if !self.state.period_prices.contains_key(&period_key).await? {
+            // Capture the initial market price from crypto API when the period starts
+            // This price comes from crypto API providers (CoinMarketCap, CoinGecko, etc.)
+            // via the update_market_price function called by oracle/admin
+            let initial_price = self.state.current_market_price.get();
+            let period_price_data = PeriodPriceData {
+                period_start,
+                period_end: Timestamp::from(period_start.micros().saturating_add(30 * 24 * 60 * 60 * 1_000_000)), // 30 days later
+                start_price: Some(initial_price.clone()), // Initial crypto API price at period start
+                end_price: None, // Will be set from crypto API when period ends
+                outcome: None,
+                resolved: false,
+            };
+            self.state.period_prices.insert(&period_key, period_price_data)?;
+        }
+        
+        // Send prediction message
+        self.runtime
+            .prepare_message(Message::PredictionMade {
+                player_id,
+                period: PredictionPeriod::Monthly,
+                outcome,
+            })
+            .send_to(self.runtime.chain_id());
+        
+        Ok(())
+    }
+
+    /// Get the result of a player's daily prediction
+    /// Returns whether the player's prediction was correct
+    /// 
+    /// # Arguments
+    /// * `player_id` - The player to check
+    /// 
+    /// # Returns
+    /// * `Ok(true)` - Prediction was correct
+    /// * `Ok(false)` - Prediction was incorrect or not resolved yet
+    /// * `Err(PlayerNotFound)` - Player doesn't exist
+    async fn get_daily_outcome(
+        &mut self,
+        player_id: PlayerId,
+    ) -> Result<bool, ContractError> {
+        let _player = self.get_player(&player_id).await?;
+        let current_time = self.runtime.system_time();
+        
+        // Find the most recent daily prediction for this player
+        let period_start = self.get_daily_period_start(current_time);
+        let prediction_key = format!("{:?}_{:?}_{}", player_id, PredictionPeriod::Daily, period_start.micros());
+        
+        // Try to resolve the prediction if not already resolved
+        if let Some(mut prediction) = self.state.predictions.get(&prediction_key).await?.map(|p| p.clone()) {
+            if !prediction.resolved {
+                let _ = self.resolve_prediction(&mut prediction, PredictionPeriod::Daily, period_start).await?;
+            }
+            
+            if let Some(correct) = prediction.correct {
+                return Ok(correct);
+            }
+        }
+        
+        Ok(false) // Prediction not found or not resolved
+    }
+
+    /// Get the result of a player's weekly prediction
+    /// Returns whether the player's prediction was correct
+    /// 
+    /// # Arguments
+    /// * `player_id` - The player to check
+    /// 
+    /// # Returns
+    /// * `Ok(true)` - Prediction was correct
+    /// * `Ok(false)` - Prediction was incorrect or not resolved yet
+    /// * `Err(PlayerNotFound)` - Player doesn't exist
+    async fn get_weekly_outcome(
+        &mut self,
+        player_id: PlayerId,
+    ) -> Result<bool, ContractError> {
+        let _player = self.get_player(&player_id).await?;
+        let current_time = self.runtime.system_time();
+        
+        // Find the most recent weekly prediction for this player
+        let period_start = self.get_weekly_period_start(current_time);
+        let prediction_key = format!("{:?}_{:?}_{}", player_id, PredictionPeriod::Weekly, period_start.micros());
+        
+        // Try to resolve the prediction if not already resolved
+        if let Some(mut prediction) = self.state.predictions.get(&prediction_key).await?.map(|p| p.clone()) {
+            if !prediction.resolved {
+                let _ = self.resolve_prediction(&mut prediction, PredictionPeriod::Weekly, period_start).await?;
+            }
+            
+            if let Some(correct) = prediction.correct {
+                return Ok(correct);
+            }
+        }
+        
+        Ok(false) // Prediction not found or not resolved
+    }
+
+    /// Get the result of a player's monthly prediction
+    /// Returns whether the player's prediction was correct
+    /// 
+    /// # Arguments
+    /// * `player_id` - The player to check
+    /// 
+    /// # Returns
+    /// * `Ok(true)` - Prediction was correct
+    /// * `Ok(false)` - Prediction was incorrect or not resolved yet
+    /// * `Err(PlayerNotFound)` - Player doesn't exist
+    async fn get_monthly_outcome(
+        &mut self,
+        player_id: PlayerId,
+    ) -> Result<bool, ContractError> {
+        let _player = self.get_player(&player_id).await?;
+        let current_time = self.runtime.system_time();
+        
+        // Find the most recent monthly prediction for this player
+        let period_start = self.get_monthly_period_start(current_time);
+        let prediction_key = format!("{:?}_{:?}_{}", player_id, PredictionPeriod::Monthly, period_start.micros());
+        
+        // Try to resolve the prediction if not already resolved
+        if let Some(mut prediction) = self.state.predictions.get(&prediction_key).await?.map(|p| p.clone()) {
+            if !prediction.resolved {
+                let _ = self.resolve_prediction(&mut prediction, PredictionPeriod::Monthly, period_start).await?;
+            }
+            
+            if let Some(correct) = prediction.correct {
+                return Ok(correct);
+            }
+        }
+        
+        Ok(false) // Prediction not found or not resolved
+    }
+
+    /// Update the current market price from crypto price API providers (Oracle/Admin only)
+    /// This function is called by an oracle or admin to update market prices from external APIs
+    /// like CoinMarketCap, CoinGecko, etc.
+    /// When prices are updated, the contract automatically resolves predictions for expired periods
+    /// 
+    /// # Arguments
+    /// * `caller` - The player calling this function (must be admin/oracle)
+    /// * `price` - The current market price from crypto API provider (e.g., CoinMarketCap, CoinGecko)
+    /// * `current_time` - Current timestamp
+    /// 
+    /// # Returns
+    /// * `Ok(())` - Price updated successfully
+    /// * `Err(NotAdmin)` - Caller is not authorized
+    /// 
+    /// # Usage Example:
+    /// ```rust
+    /// // Oracle fetches price from CoinGecko API (e.g., BTC price = $50,000)
+    /// let crypto_price = Amount::from_tokens(50000); // Convert to Amount
+    /// contract.update_market_price(admin_id, crypto_price, current_time).await?;
+    /// ```
+    async fn update_market_price(
+        &mut self,
+        caller: PlayerId,
+        price: Amount,
+        current_time: Timestamp,
+    ) -> Result<(), ContractError> {
+        let config = self.state.config.get();
+        
+        // Only admin can update market prices (oracle functionality)
+        // In production, this would be called by an oracle service that fetches
+        // prices from crypto API providers like CoinMarketCap, CoinGecko, etc.
+        if let Some(admin) = config.admin {
+            if caller != admin {
+                return Err(ContractError::NotAdmin);
+            }
+        } else {
+            return Err(ContractError::NotAdmin);
+        }
+        
+        // Update current market price with data from crypto API provider
+        let market_price = MarketPrice {
+            price,  // Price from crypto API (CoinMarketCap, CoinGecko, etc.)
+            timestamp: current_time,
+        };
+        self.state.current_market_price.set(market_price);
+        
+        // Try to resolve expired periods and their predictions
+        // This compares end_price (from crypto API) to initial_price (from crypto API)
+        self.resolve_expired_predictions(current_time).await?;
+        
+        Ok(())
+    }
+
+    // ============================================================================
+    // Price Prediction Helper Functions
+    // ============================================================================
+
+    /// Calculate the start timestamp for a daily period (midnight of the current day)
+    fn get_daily_period_start(&self, timestamp: Timestamp) -> Timestamp {
+        // For simplicity, use current timestamp rounded down to day boundary
+        // In production, this should properly calculate midnight
+        let one_day_micros = 24 * 60 * 60 * 1_000_000;
+        let day_start = (timestamp.micros() / one_day_micros) * one_day_micros;
+        Timestamp::from(day_start)
+    }
+
+    /// Calculate the start timestamp for a weekly period (start of current week)
+    fn get_weekly_period_start(&self, timestamp: Timestamp) -> Timestamp {
+        // For simplicity, use current timestamp rounded down to week boundary
+        // In production, this should properly calculate week start (e.g., Monday)
+        let one_week_micros = 7 * 24 * 60 * 60 * 1_000_000;
+        let week_start = (timestamp.micros() / one_week_micros) * one_week_micros;
+        Timestamp::from(week_start)
+    }
+
+    /// Calculate the start timestamp for a monthly period (start of current month)
+    fn get_monthly_period_start(&self, timestamp: Timestamp) -> Timestamp {
+        // For simplicity, use current timestamp rounded down to month boundary
+        // In production, this should properly calculate month start
+        let one_month_micros = 30 * 24 * 60 * 60 * 1_000_000; // Approximate
+        let month_start = (timestamp.micros() / one_month_micros) * one_month_micros;
+        Timestamp::from(month_start)
+    }
+
+    /// Resolve a prediction by comparing it to the actual outcome
+    /// This function calculates whether a player's prediction was correct
+    async fn resolve_prediction(
+        &mut self,
+        prediction: &mut PlayerPrediction,
+        period: PredictionPeriod,
+        period_start: Timestamp,
+    ) -> Result<(), ContractError> {
+        if prediction.resolved {
+            return Ok(()); // Already resolved
+        }
+        
+        // Get period price data
+        let period_key = format!("{:?}_{}", period, period_start.micros());
+        
+        if let Some(mut period_data) = self.state.period_prices.get(&period_key).await?.map(|p| p.clone()) {
+            // Check if period has both initial price (start_price) and end price from crypto API
+            if let (Some(initial_price), Some(end_price)) = (&period_data.start_price, &period_data.end_price) {
+                // Calculate the actual outcome: compare end_price (from crypto API) to initial_price (from crypto API)
+                // Both prices come from crypto API providers (CoinMarketCap, CoinGecko, etc.)
+                // Rise: end_price > initial_price (crypto API price increased)
+                // Fall: end_price < initial_price (crypto API price decreased)
+                // Neutral: end_price == initial_price (crypto API price stayed same)
+                let actual_outcome = self.calculate_outcome_from_prices(initial_price.price, end_price.price);
+                
+                // Check if prediction matches actual outcome
+                let is_correct = prediction.outcome == actual_outcome;
+                
+                // Update prediction
+                prediction.resolved = true;
+                prediction.correct = Some(is_correct);
+                
+                // Update period data
+                period_data.outcome = Some(actual_outcome);
+                period_data.resolved = true;
+                self.state.period_prices.insert(&period_key, period_data)?;
+                
+                // Update prediction in storage
+                let prediction_key = format!("{:?}_{:?}_{}", prediction.player_id, period, period_start.micros());
+                self.state.predictions.insert(&prediction_key, prediction.clone())?;
+                
+                // Award or penalize based on prediction correctness
+                if is_correct {
+                    // Correct prediction: award points based on period (Daily: 100, Weekly: 500, Monthly: 1000)
+                    self.award_prediction_reward(&prediction.player_id, period).await?;
+                    // If player is in a guild, award all guild members the same amount
+                    self.award_guild_prediction_reward(&prediction.player_id, period).await?;
+                } else {
+                    // Wrong prediction: deduct points based on period (Daily: 100, Weekly: 500, Monthly: 1000)
+                    self.penalize_prediction_loss(&prediction.player_id, period).await?;
+                    // If player is in a guild, deduct the same amount from all guild members
+                    self.penalize_guild_prediction_loss(&prediction.player_id, period).await?;
+                }
+                
+                // Send resolution message
+                self.runtime
+                    .prepare_message(Message::PredictionResolved {
+                        player_id: prediction.player_id,
+                        period,
+                        correct: is_correct,
+                    })
+                    .send_to(self.runtime.chain_id());
+            }
+        }
+        
+        Ok(())
+    }
+
+    /// Calculate the outcome (Rise, Fall, Neutral) based on price change from crypto API
+    /// Compares end_price (from crypto API) to initial_price (from crypto API):
+    /// Both prices come from crypto API providers like CoinMarketCap, CoinGecko, etc.
+    /// - Rise: end_price > initial_price (crypto API price increased from initial)
+    /// - Fall: end_price < initial_price (crypto API price decreased from initial)
+    /// - Neutral: end_price == initial_price (crypto API price stayed the same as initial)
+    fn calculate_outcome_from_prices(&self, initial_price: Amount, end_price: Amount) -> PriceOutcome {
+        // Compare crypto API end_price to crypto API initial_price
+        match end_price.cmp(&initial_price) {
+            std::cmp::Ordering::Greater => PriceOutcome::Rise,  // end_price > initial_price
+            std::cmp::Ordering::Less => PriceOutcome::Fall,     // end_price < initial_price
+            std::cmp::Ordering::Equal => PriceOutcome::Neutral, // end_price == initial_price
+        }
+    }
+
+    /// Resolve all expired predictions when market price is updated
+    async fn resolve_expired_predictions(&mut self, current_time: Timestamp) -> Result<(), ContractError> {
+        // Check daily, weekly, and monthly periods
+        let periods = vec![
+            PredictionPeriod::Daily,
+            PredictionPeriod::Weekly,
+            PredictionPeriod::Monthly,
+        ];
+        
+        for period in periods {
+            let period_start = match period {
+                PredictionPeriod::Daily => self.get_daily_period_start(current_time),
+                PredictionPeriod::Weekly => self.get_weekly_period_start(current_time),
+                PredictionPeriod::Monthly => self.get_monthly_period_start(current_time),
+            };
+            
+            let period_key = format!("{:?}_{}", period, period_start.micros());
+            
+            if let Some(mut period_data) = self.state.period_prices.get(&period_key).await?.map(|p| p.clone()) {
+                // Check if period has ended
+                if current_time.micros() >= period_data.period_end.micros() {
+                    // If initial price (start_price) is not set, set it from current crypto API price
+                    // This shouldn't normally happen, but handle it as a fallback
+                    if period_data.start_price.is_none() {
+                        let current_price = self.state.current_market_price.get(); // From crypto API
+                        period_data.start_price = Some(current_price.clone());
+                        self.state.period_prices.insert(&period_key, period_data.clone())?;
+                    }
+                    // If end price is not set, set it from current crypto API price when period ends
+                    // The oracle/admin should have called update_market_price() with the latest crypto API price
+                    if period_data.end_price.is_none() {
+                        let current_price = self.state.current_market_price.get(); // From crypto API (CoinMarketCap, CoinGecko, etc.)
+                        period_data.end_price = Some(current_price.clone());
+                        self.state.period_prices.insert(&period_key, period_data)?;
+                    }
+                    
+                    // Now try to resolve all predictions for this period
+                    // Note: This is a simplified approach. In production, you'd iterate through all predictions
+                    // for this period. For now, predictions are resolved on-demand when Get*Outcome is called.
+                }
+            }
+        }
+        
+        Ok(())
+    }
+
+    /// Award rewards to a player for a correct prediction
+    /// Player gets points based on period: Daily: 100, Weekly: 500, Monthly: 1000
+    async fn award_prediction_reward(
+        &mut self,
+        player_id: &PlayerId,
+        period: PredictionPeriod,
+    ) -> Result<(), ContractError> {
+        let mut player = self.get_player(player_id).await?;
+        
+        // Award points based on period
+        let reward = match period {
+            PredictionPeriod::Daily => Amount::from_tokens(100),    // Daily: 100 points
+            PredictionPeriod::Weekly => Amount::from_tokens(500),   // Weekly: 500 points
+            PredictionPeriod::Monthly => Amount::from_tokens(1000), // Monthly: 1000 points
+        };
+        
+        // Award tokens
+        player.token_balance = player.token_balance.saturating_add(reward);
+        player.total_earned = player.total_earned.saturating_add(reward);
+        
+        // Award XP (keep XP system for progression)
+        let xp_reward = match period {
+            PredictionPeriod::Daily => 50,
+            PredictionPeriod::Weekly => 250,
+            PredictionPeriod::Monthly => 500,
+        };
+        self.add_experience(&mut player, xp_reward).await?;
+        self.state.players.insert(player_id, player)?;
+        
+        // Update total supply
+        let current_supply = self.state.total_supply.get();
+        self.state.total_supply.set(current_supply.saturating_add(reward));
+        
+        Ok(())
+    }
+
+    /// Penalize a player for a wrong prediction
+    /// Player loses points based on period: Daily: 100, Weekly: 500, Monthly: 1000
+    async fn penalize_prediction_loss(
+        &mut self,
+        player_id: &PlayerId,
+        period: PredictionPeriod,
+    ) -> Result<(), ContractError> {
+        let mut player = self.get_player(player_id).await?;
+        
+        // Deduct points based on period
+        let penalty = match period {
+            PredictionPeriod::Daily => Amount::from_tokens(100),    // Daily: 100 points
+            PredictionPeriod::Weekly => Amount::from_tokens(500),   // Weekly: 500 points
+            PredictionPeriod::Monthly => Amount::from_tokens(1000), // Monthly: 1000 points
+        };
+        
+        // Deduct tokens (ensure balance doesn't go negative)
+        if player.token_balance >= penalty {
+            player.token_balance = player.token_balance.saturating_sub(penalty);
+            player.total_spent = player.total_spent.saturating_add(penalty);
+        } else {
+            // If player doesn't have enough, set balance to zero
+            let deducted = player.token_balance;
+            player.token_balance = Amount::ZERO;
+            player.total_spent = player.total_spent.saturating_add(deducted);
+        }
+        
+        self.state.players.insert(player_id, player)?;
+        
+        // Update total supply (burn tokens)
+        let current_supply = self.state.total_supply.get();
+        let to_burn = penalty.min(*current_supply);
+        self.state.total_supply.set(current_supply.saturating_sub(to_burn));
+        
+        Ok(())
+    }
+
+    /// Award rewards to all guild members when a guild member makes a correct prediction
+    /// Every player in the guild gets points based on period: Daily: 100, Weekly: 500, Monthly: 1000
+    async fn award_guild_prediction_reward(
+        &mut self,
+        player_id: &PlayerId,
+        period: PredictionPeriod,
+    ) -> Result<(), ContractError> {
+        let player = self.get_player(player_id).await?;
+        
+        // Check if player is in a guild
+        if let Some(guild_id) = player.guild_id {
+            if let Some(guild) = self.state.guilds.get(&guild_id).await?.map(|g| g.clone()) {
+                // Award points based on period
+                let reward = match period {
+                    PredictionPeriod::Daily => Amount::from_tokens(100),    // Daily: 100 points
+                    PredictionPeriod::Weekly => Amount::from_tokens(500),   // Weekly: 500 points
+                    PredictionPeriod::Monthly => Amount::from_tokens(1000), // Monthly: 1000 points
+                };
+                
+                // Award points to each guild member
+                for member_id in &guild.members {
+                    let mut member = self.get_player(member_id).await?;
+                    
+                    member.token_balance = member.token_balance.saturating_add(reward);
+                    member.total_earned = member.total_earned.saturating_add(reward);
+                    
+                    // Award XP to guild members
+                    let xp_reward = match period {
+                        PredictionPeriod::Daily => 25,
+                        PredictionPeriod::Weekly => 125,
+                        PredictionPeriod::Monthly => 250,
+                    };
+                    self.add_experience(&mut member, xp_reward).await?;
+                    self.state.players.insert(member_id, member)?;
+                }
+                
+                // Update total supply
+                let member_count = guild.members.len() as u128;
+                let reward_tokens: u128 = reward.into();
+                let total_reward_tokens = reward_tokens.saturating_mul(member_count);
+                let total_reward = Amount::from_tokens(total_reward_tokens);
+                let current_supply = self.state.total_supply.get();
+                self.state.total_supply.set(current_supply.saturating_add(total_reward));
+            }
+        }
+        
+        Ok(())
+    }
+
+    /// Penalize all guild members when a guild member makes a wrong prediction
+    /// Every player in the guild loses points based on period: Daily: 100, Weekly: 500, Monthly: 1000
+    async fn penalize_guild_prediction_loss(
+        &mut self,
+        player_id: &PlayerId,
+        period: PredictionPeriod,
+    ) -> Result<(), ContractError> {
+        let player = self.get_player(player_id).await?;
+        
+        // Check if player is in a guild
+        if let Some(guild_id) = player.guild_id {
+            if let Some(guild) = self.state.guilds.get(&guild_id).await?.map(|g| g.clone()) {
+                // Deduct points based on period
+                let penalty = match period {
+                    PredictionPeriod::Daily => Amount::from_tokens(100),    // Daily: 100 points
+                    PredictionPeriod::Weekly => Amount::from_tokens(500),   // Weekly: 500 points
+                    PredictionPeriod::Monthly => Amount::from_tokens(1000), // Monthly: 1000 points
+                };
+                
+                // Deduct points from each guild member
+                for member_id in &guild.members {
+                    let mut member = self.get_player(member_id).await?;
+                    
+                    // Deduct tokens (ensure balance doesn't go negative)
+                    if member.token_balance >= penalty {
+                        member.token_balance = member.token_balance.saturating_sub(penalty);
+                        member.total_spent = member.total_spent.saturating_add(penalty);
+                    } else {
+                        // If member doesn't have enough, set balance to zero
+                        let deducted = member.token_balance;
+                        member.token_balance = Amount::ZERO;
+                        member.total_spent = member.total_spent.saturating_add(deducted);
+                    }
+                    
+                    self.state.players.insert(member_id, member)?;
+                }
+                
+                // Update total supply (burn tokens)
+                let member_count = guild.members.len() as u128;
+                let penalty_tokens: u128 = penalty.into();
+                let total_penalty_tokens = penalty_tokens.saturating_mul(member_count);
+                let total_penalty = Amount::from_tokens(total_penalty_tokens);
+                let current_supply = self.state.total_supply.get();
+                let to_burn = total_penalty.min(*current_supply);
+                self.state.total_supply.set(current_supply.saturating_sub(to_burn));
+            }
+        }
+        
+        Ok(())
+    }
 
 }

@@ -12,6 +12,7 @@ pub use state::{
     MarketId, PlayerId, OutcomeId, GuildId, AchievementId,
     MarketType, MarketStatus, ResolutionMethod,
     GameConfig, Market, Player, Guild, Leaderboard,
+    PriceOutcome, PredictionPeriod, PlayerPrediction,
 };
 
 pub struct PredictiveManagerAbi;
@@ -60,4 +61,12 @@ pub enum Operation {
     
     // Admin operations
     UpdateGameConfig { config: GameConfig },
+    
+    // Price prediction operations
+    PredictDailyOutcome { outcome: PriceOutcome },
+    PredictWeeklyOutcome { outcome: PriceOutcome },
+    PredictMonthlyOutcome { outcome: PriceOutcome },
+    
+    // Oracle/Admin operations for price updates
+    UpdateMarketPrice { price: Amount },
 }
