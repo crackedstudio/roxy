@@ -1749,12 +1749,41 @@ impl PredictionMarketContract {
                     if period_data.end_price.is_none() {
                         let current_price = self.state.current_market_price.get(); // From crypto API (CoinMarketCap, CoinGecko, etc.)
                         period_data.end_price = Some(current_price.clone());
-                        self.state.period_prices.insert(&period_key, period_data)?;
+                        self.state.period_prices.insert(&period_key, period_data.clone())?;
                     }
                     
-                    // Now try to resolve all predictions for this period
-                    // Note: This is a simplified approach. In production, you'd iterate through all predictions
-                    // for this period. For now, predictions are resolved on-demand when Get*Outcome is called.
+                    // Now resolve all predictions for this period
+                    // Iterate through all predictions and resolve those matching this period
+                    let period_start_micros = period_start.micros();
+                    let period_str = format!("{:?}", period);
+                    let period_suffix = format!("_{}_{}", period_str, period_start_micros);
+                    
+                    // Collect all prediction keys for this period
+                    let mut prediction_keys_to_resolve = Vec::new();
+                    self.state.predictions.for_each_index_value(|pred_key, prediction| {
+                        // Check if this prediction matches the current period
+                        // Prediction keys are in format: "{:?}_{:?}_{}", so we check the suffix
+                        if pred_key.ends_with(&period_suffix) {
+                            // Check if prediction is not already resolved
+                            let pred = prediction.clone();
+                            if !pred.resolved {
+                                prediction_keys_to_resolve.push(pred_key.clone());
+                            }
+                        }
+                        Ok(())
+                    }).await.expect("Failed to iterate predictions");
+                    
+                    // Resolve each prediction for this period
+                    for pred_key in prediction_keys_to_resolve {
+                        // Get the prediction from storage
+                        if let Some(mut prediction) = self.state.predictions.get(&pred_key).await?.map(|p| p.clone()) {
+                            if !prediction.resolved {
+                                // Try to resolve this prediction
+                                let _ = self.resolve_prediction(&mut prediction, period, period_start).await;
+                                // Note: If resolution fails (e.g., prices not ready), it will be resolved on-demand later
+                            }
+                        }
+                    }
                 }
             }
         }
