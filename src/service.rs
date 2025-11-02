@@ -73,7 +73,7 @@ mod tests {
 
     #[test]
     fn query() {
-        let total_supply = Amount::from_tokens(100000);
+        let total_supply = Amount::from_tokens(100);
         let runtime = Arc::new(ServiceRuntime::<PredictiveManagerService>::new());
         let mut state = PredictionMarketState::load(runtime.root_view_storage_context())
             .blocking_wait()
@@ -88,7 +88,7 @@ mod tests {
             .now_or_never()
             .expect("Query should not await anything");
 
-        let expected = Response::new(Value::from_json(json!({"totalSupply": "100000."})).unwrap());   // the value go exceeds
+        let expected = Response::new(Value::from_json(json!({"totalSupply": "100."})).unwrap());   // the value go exceeds
 
         assert_eq!(response, expected)
     }

@@ -888,25 +888,27 @@ impl PredictionMarketContract {
     // ============================================================================
     
     /// Update the enhanced leaderboard with sophisticated ranking algorithms
+    /// Players are ranked by total points earned (total_earned)
+    /// Guilds are ranked by total points earned by all guild members
     async fn update_enhanced_leaderboard(&mut self) {
         let mut top_traders = Vec::new();
         let mut top_guilds = Vec::new();
         
-        // Collect all players and calculate enhanced scores
+        // Collect all players and rank by total points earned
         let mut player_scores = Vec::new();
         self.state.players.for_each_index_value(|player_id, player| {
             let player = player.into_owned();
-            // Use enhanced scoring (simplified to avoid self capture)
-            let score: f64 = 100.0; // Simplified scoring for now
-            player_scores.push((player_id, player, score));
+            // Use total_earned (total points earned) for ranking
+            let total_points: u128 = player.total_earned.into();
+            player_scores.push((player_id, player, total_points));
             Ok(())
         }).await.expect("Failed to iterate players");
         
-        // Sort by enhanced score (profit + win_rate + level + reputation)
-        player_scores.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+        // Sort by total points earned (descending)
+        player_scores.sort_by(|a, b| b.2.cmp(&a.2));
         
-        // Take top 50 traders
-        for (player_id, player, _score) in player_scores.into_iter().take(50) {
+        // Take top 50 players by total points earned
+        for (player_id, player, _total_points) in player_scores.into_iter().take(50) {
             let win_rate = if player.markets_participated > 0 {
                 (player.markets_won as f64 / player.markets_participated as f64) * 100.0
             } else {
@@ -916,32 +918,53 @@ impl PredictionMarketContract {
             top_traders.push(LeaderboardEntry {
                 player_id,
                 display_name: player.display_name,
-                total_profit: player.total_profit,
+                total_profit: player.total_earned, // Use total_earned instead of total_profit
                 win_rate,
                 level: player.level,
             });
         }
         
-        // Collect all guilds and calculate enhanced scores
+        // Collect all guilds and calculate total points earned by all members
         let mut guild_scores = Vec::new();
         self.state.guilds.for_each_index_value(|guild_id, guild| {
             let guild = guild.into_owned();
-            // Simplified scoring to avoid self capture
-            let score: f64 = 100.0; // Simplified scoring
-            guild_scores.push((guild_id, guild, score));
+            
+            // Calculate total points earned by all guild members
+            // We need to collect this separately due to async constraints
+            let guild_members = guild.members.clone();
+            let guild_name = guild.name.clone();
+            guild_scores.push((guild_id, guild_members, guild_name));
             Ok(())
         }).await.expect("Failed to iterate guilds");
         
-        // Sort by enhanced score (profit + member_count + level)
-        guild_scores.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+        // Calculate total points for each guild
+        let mut guild_totals = Vec::new();
+        for (guild_id, members, name) in guild_scores {
+            let mut total_guild_points = Amount::ZERO;
+            let member_count = members.len() as u32;
+            
+            // Sum total points earned by all guild members
+            for member_id in &members {
+                if let Some(member) = self.state.players.get(member_id).await.ok().flatten() {
+                    let member = member.clone();
+                    total_guild_points = total_guild_points.saturating_add(member.total_earned);
+                }
+            }
+            
+            let total_points: u128 = total_guild_points.into();
+            guild_totals.push((guild_id, name, total_guild_points, member_count, total_points));
+        }
         
-        // Take top 20 guilds
-        for (guild_id, guild, _score) in guild_scores.into_iter().take(20) {
+        // Sort by total points earned by guild (descending)
+        guild_totals.sort_by(|a, b| b.4.cmp(&a.4));
+        
+        // Take top 20 guilds by total points earned
+        for (guild_id, name, total_guild_points, member_count, _total_points) in guild_totals.into_iter().take(20) {
             top_guilds.push(GuildLeaderboardEntry {
                 guild_id,
-                name: guild.name,
-                total_profit: guild.total_guild_profit,
-                member_count: guild.members.len() as u32,
+                name,
+                total_profit: total_guild_points, // Use total points earned instead of total_guild_profit
+                member_count,
             });
         }
         
@@ -1772,6 +1795,9 @@ impl PredictionMarketContract {
         let current_supply = self.state.total_supply.get();
         self.state.total_supply.set(current_supply.saturating_add(reward));
         
+        // Update leaderboard after awarding points
+        self.update_enhanced_leaderboard().await;
+        
         Ok(())
     }
 
@@ -1855,6 +1881,9 @@ impl PredictionMarketContract {
                 let total_reward = Amount::from_tokens(total_reward_tokens);
                 let current_supply = self.state.total_supply.get();
                 self.state.total_supply.set(current_supply.saturating_add(total_reward));
+                
+                // Update leaderboard after awarding guild points
+                self.update_enhanced_leaderboard().await;
             }
         }
         

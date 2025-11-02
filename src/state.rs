@@ -27,7 +27,7 @@ impl Default for GameConfig {
     fn default() -> Self {
         Self {
             admin: None,
-            initial_player_tokens: Amount::from_tokens(100000),
+            initial_player_tokens: Amount::from_tokens(100),
             daily_login_reward: Amount::from_tokens(10),
             market_creation_cost: Amount::from_tokens(100),
             min_market_duration_seconds: 300,
