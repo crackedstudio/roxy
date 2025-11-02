@@ -1,6 +1,6 @@
 {
   "admin": null,
-  "initial_player_tokens": "1000.",
+  "initial_player_tokens": "100000.",
   "daily_login_reward": "10.",
   "market_creation_cost": "100.",
   "min_market_duration_seconds": 300,
