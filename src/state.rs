@@ -40,7 +40,7 @@ impl Default for GameConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, async_graphql::SimpleObject)]
 pub struct Market {
     pub id: MarketId,
     pub creator: PlayerId,
@@ -92,7 +92,7 @@ pub struct PlayerPosition {
     pub entry_time: Timestamp,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, async_graphql::SimpleObject)]
 pub struct Player {
     pub id: PlayerId,
     pub display_name: Option<String>,
@@ -140,7 +140,7 @@ pub struct LeaderboardEntry {
     pub level: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, async_graphql::SimpleObject)]
 pub struct Guild {
     pub id: GuildId,
     pub name: String,
