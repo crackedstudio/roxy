@@ -1561,8 +1561,6 @@ impl PredictionMarketContract {
         Ok(())
     }
 
-
-
     /// Update the current market price from crypto price API providers (Oracle/Admin only)
     /// This function is called by an oracle or admin to update market prices from external APIs
     /// like CoinMarketCap, CoinGecko, etc.

@@ -1954,7 +1954,6 @@ async fn test_graphql_queries() {
         let monthly_outcome = response["getMonthlyOutcome"].as_bool();
         assert_eq!(monthly_outcome, Some(false)); // Should be false since prediction is not resolved yet
     }
-
 }
 
 /// Test the complete prediction resolution flow
@@ -1967,20 +1966,20 @@ async fn test_prediction_resolution_flow() {
         GameConfig,
     >()
     .await;
-    
+
     // Create a chain for admin/oracle
     let mut admin_chain = v.new_chain().await;
-    
+
     // Create application (admin will be set to the deployer automatically)
     let application_id = admin_chain
         .create_application(m, (), GameConfig::default(), vec![])
         .await;
-    
+
     // Create a player chain
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
-    
+
     // Register player
     chain
         .add_block(|block| {
@@ -1992,7 +1991,7 @@ async fn test_prediction_resolution_flow() {
             );
         })
         .await;
-    
+
     // Create a guild to get player ID
     chain
         .add_block(|block| {
@@ -2004,7 +2003,7 @@ async fn test_prediction_resolution_flow() {
             );
         })
         .await;
-    
+
     // Set initial market price (as admin)
     admin_chain
         .add_block(|block| {
@@ -2016,7 +2015,7 @@ async fn test_prediction_resolution_flow() {
             );
         })
         .await;
-    
+
     // Make predictions for all periods
     chain
         .add_block(|block| {
@@ -2028,7 +2027,7 @@ async fn test_prediction_resolution_flow() {
             );
         })
         .await;
-    
+
     chain
         .add_block(|block| {
             block.with_operation(
@@ -2039,7 +2038,7 @@ async fn test_prediction_resolution_flow() {
             );
         })
         .await;
-    
+
     chain
         .add_block(|block| {
             block.with_operation(
@@ -2050,7 +2049,7 @@ async fn test_prediction_resolution_flow() {
             );
         })
         .await;
-    
+
     // Get player ID from player query
     let QueryOutcome {
         response: player_response,
@@ -2058,7 +2057,7 @@ async fn test_prediction_resolution_flow() {
     } = chain
         .graphql_query(application_id, "query { allGuilds { founder } }")
         .await;
-    
+
     let player_id = if let Some(guilds) = player_response["allGuilds"].as_array() {
         if let Some(first_guild) = guilds.first() {
             first_guild["founder"].as_str().map(|s| s.to_string())
@@ -2068,7 +2067,7 @@ async fn test_prediction_resolution_flow() {
     } else {
         None
     };
-    
+
     if let Some(ref pid) = player_id {
         // Check that predictions exist but are not resolved yet
         let query = format!("query {{ getDailyOutcome(playerId: \"{}\") }}", pid);
@@ -2076,14 +2075,14 @@ async fn test_prediction_resolution_flow() {
         assert!(response.get("getDailyOutcome").is_some());
         let daily_outcome = response["getDailyOutcome"].as_bool();
         assert_eq!(daily_outcome, Some(false)); // Not resolved yet
-        
+
         // Progress time to make at least the daily period expire
         // Each block advances time, so we add empty blocks to progress time
         // Daily period = 24 hours = 86,400,000,000 microseconds
         // Note: In Linera tests, each block advances time incrementally
         // We add many blocks to simulate time passing (24+ hours)
         // This ensures the daily period expires so predictions can be resolved
-        
+
         // Add many empty blocks to progress time past the daily period (24 hours)
         // Each block advances time, so we need enough blocks to pass 24 hours
         for _ in 0..100 {
@@ -2093,7 +2092,7 @@ async fn test_prediction_resolution_flow() {
                 })
                 .await;
         }
-        
+
         // Update market price to trigger resolution (price increased to $55,000)
         // This should trigger resolve_expired_predictions for all expired periods
         // Since daily period has expired (24 hours passed), it should resolve
@@ -2107,10 +2106,10 @@ async fn test_prediction_resolution_flow() {
                 );
             })
             .await;
-        
+
         // Check outcomes - predictions should now be resolved since periods have expired
         // Since price increased from $50,000 to $55,000 and we predicted Rise for daily, it should be correct
-        
+
         // Verify daily prediction was resolved correctly
         // We predicted Rise, price increased from $50,000 to $55,000 → prediction is CORRECT
         let query = format!("query {{ getDailyOutcome(playerId: \"{}\") }}", pid);
@@ -2118,8 +2117,12 @@ async fn test_prediction_resolution_flow() {
         assert!(response.get("getDailyOutcome").is_some());
         let daily_outcome = response["getDailyOutcome"].as_bool();
         // Daily prediction should be resolved and correct (price rose, we predicted Rise = true)
-        assert_eq!(daily_outcome, Some(true), "Daily prediction should be resolved and correct (Rise predicted, price increased)");
-        
+        assert_eq!(
+            daily_outcome,
+            Some(true),
+            "Daily prediction should be resolved and correct (Rise predicted, price increased)"
+        );
+
         // Verify weekly prediction
         // We predicted Fall, but price increased → prediction is INCORRECT
         let query = format!("query {{ getWeeklyOutcome(playerId: \"{}\") }}", pid);
@@ -2130,9 +2133,13 @@ async fn test_prediction_resolution_flow() {
         // Note: Weekly period is 7 days, might not be expired yet depending on time progression
         if weekly_outcome.is_some() {
             // If resolved, it should be false (price rose, we predicted Fall = incorrect)
-            assert_eq!(weekly_outcome, Some(false), "Weekly prediction should be incorrect (Fall predicted, price increased)");
+            assert_eq!(
+                weekly_outcome,
+                Some(false),
+                "Weekly prediction should be incorrect (Fall predicted, price increased)"
+            );
         }
-        
+
         // Verify monthly prediction
         // We predicted Neutral, but price increased → prediction is INCORRECT
         let query = format!("query {{ getMonthlyOutcome(playerId: \"{}\") }}", pid);
@@ -2143,10 +2150,11 @@ async fn test_prediction_resolution_flow() {
         // Note: Monthly period is 30 days, might not be expired yet depending on time progression
         if monthly_outcome.is_some() {
             // If resolved, it should be false (price rose, we predicted Neutral = incorrect)
-            assert_eq!(monthly_outcome, Some(false), "Monthly prediction should be incorrect (Neutral predicted, price increased)");
+            assert_eq!(
+                monthly_outcome,
+                Some(false),
+                "Monthly prediction should be incorrect (Neutral predicted, price increased)"
+            );
         }
-        
-      
     }
-    
 }

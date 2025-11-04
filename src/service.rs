@@ -37,7 +37,7 @@ impl StateWrapper {
     unsafe fn state(&self) -> &PredictionMarketState {
         &*self.state
     }
-    
+
     #[inline]
     fn runtime(&self) -> &Arc<ServiceRuntime<PredictiveManagerService>> {
         &self.runtime
@@ -228,7 +228,7 @@ impl QueryRoot {
     ) -> async_graphql::Result<bool> {
         let state_wrapper = ctx.data_unchecked::<StateWrapper>();
         let state = unsafe { state_wrapper.state() };
-        
+
         // Verify player exists
         state
             .players
@@ -266,7 +266,7 @@ impl QueryRoot {
     ) -> async_graphql::Result<bool> {
         let state_wrapper = ctx.data_unchecked::<StateWrapper>();
         let state = unsafe { state_wrapper.state() };
-        
+
         // Verify player exists
         state
             .players
@@ -304,7 +304,7 @@ impl QueryRoot {
     ) -> async_graphql::Result<bool> {
         let state_wrapper = ctx.data_unchecked::<StateWrapper>();
         let state = unsafe { state_wrapper.state() };
-        
+
         // Verify player exists
         state
             .players
@@ -334,28 +334,24 @@ impl QueryRoot {
     }
 }
 
-// Helper functions for period calculations 
+// Helper functions for period calculations
 fn get_daily_period_start(timestamp: Timestamp) -> Timestamp {
-   
     let one_day_micros = 24 * 60 * 60 * 1_000_000;
     let day_start = (timestamp.micros() / one_day_micros) * one_day_micros;
     Timestamp::from(day_start)
 }
 
 fn get_weekly_period_start(timestamp: Timestamp) -> Timestamp {
-
     let one_week_micros = 7 * 24 * 60 * 60 * 1_000_000;
     let week_start = (timestamp.micros() / one_week_micros) * one_week_micros;
     Timestamp::from(week_start)
 }
 
 fn get_monthly_period_start(timestamp: Timestamp) -> Timestamp {
- 
     let one_month_micros = 30 * 24 * 60 * 60 * 1_000_000; // Approximate
     let month_start = (timestamp.micros() / one_month_micros) * one_month_micros;
     Timestamp::from(month_start)
 }
-
 
 #[cfg(test)]
 mod tests {
