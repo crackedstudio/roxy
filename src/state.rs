@@ -1,5 +1,5 @@
-use linera_sdk::views::{linera_views, MapView, RegisterView, RootView, ViewStorageContext};
 use linera_sdk::linera_base_types::{AccountOwner, Amount, Timestamp};
+use linera_sdk::views::{linera_views, MapView, RegisterView, RootView, ViewStorageContext};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -45,7 +45,7 @@ pub struct Market {
     pub id: MarketId,
     pub creator: PlayerId,
     pub title: String,
-    pub amount: Amount, // Amount of points to sell or buy
+    pub amount: Amount,  // Amount of points to sell or buy
     pub fee_percent: u8, // Fee percentage that seller wants to charge (0-100)
     pub creation_time: Timestamp,
     pub status: MarketStatus,
@@ -59,7 +59,10 @@ pub enum MarketType {
     QuickPrediction,
     TournamentMarket,
     SeasonalEvent,
-    PvPChallenge { challenger: PlayerId, challenged: PlayerId },
+    PvPChallenge {
+        challenger: PlayerId,
+        challenged: PlayerId,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Copy, async_graphql::Enum)]
@@ -188,11 +191,11 @@ pub struct Achievement {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AchievementRequirement {
-    CreateMarket,          // Create first market
-    FirstBuy,              // Make first buy
-    FirstSell,             // Make first sell
-    JoinGuild,             // Join a guild
-    ReachLevel(u32),       // Reach specific level (e.g., level 2, 3, 4...)
+    CreateMarket,    // Create first market
+    FirstBuy,        // Make first buy
+    FirstSell,       // Make first sell
+    JoinGuild,       // Join a guild
+    ReachLevel(u32), // Reach specific level (e.g., level 2, 3, 4...)
     // Legacy requirements (kept for backward compatibility)
     WinMarkets(u64),
     WinStreak(u32),
@@ -208,17 +211,17 @@ pub enum AchievementRequirement {
 /// Represents the predicted outcome of market price movement
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Copy, async_graphql::Enum)]
 pub enum PriceOutcome {
-    Rise,      // Price increased
-    Fall,      // Price decreased
-    Neutral,   // Price stayed the same
+    Rise,    // Price increased
+    Fall,    // Price decreased
+    Neutral, // Price stayed the same
 }
 
 /// Represents the period type for predictions
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Copy)]
 pub enum PredictionPeriod {
-    Daily,    // Daily prediction (24 hours)
-    Weekly,   // Weekly prediction (7 days)
-    Monthly,  // Monthly prediction (30 days)
+    Daily,   // Daily prediction (24 hours)
+    Weekly,  // Weekly prediction (7 days)
+    Monthly, // Monthly prediction (30 days)
 }
 
 /// Stores a player's prediction for a specific period
@@ -228,16 +231,16 @@ pub struct PlayerPrediction {
     pub period: PredictionPeriod,
     pub outcome: PriceOutcome,
     pub prediction_time: Timestamp,
-    pub period_start: Timestamp,  // Start timestamp of the prediction period
-    pub resolved: bool,           // Whether the prediction has been resolved
-    pub correct: Option<bool>,    // None if not resolved, Some(true/false) if resolved
+    pub period_start: Timestamp, // Start timestamp of the prediction period
+    pub resolved: bool,          // Whether the prediction has been resolved
+    pub correct: Option<bool>,   // None if not resolved, Some(true/false) if resolved
 }
 
 /// Stores market price data at a specific timestamp
 /// Used by oracle/admin to submit actual market prices for verification
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MarketPrice {
-    pub price: Amount,      // Price as an Amount (using token units as price units)
+    pub price: Amount, // Price as an Amount (using token units as price units)
     pub timestamp: Timestamp,
 }
 
@@ -246,9 +249,9 @@ pub struct MarketPrice {
 pub struct PeriodPriceData {
     pub period_start: Timestamp,
     pub period_end: Timestamp,
-    pub start_price: Option<MarketPrice>,  // Price at period start
-    pub end_price: Option<MarketPrice>,     // Price at period end
-    pub outcome: Option<PriceOutcome>,      // Calculated outcome based on price change
+    pub start_price: Option<MarketPrice>, // Price at period start
+    pub end_price: Option<MarketPrice>,   // Price at period end
+    pub outcome: Option<PriceOutcome>,    // Calculated outcome based on price change
     pub resolved: bool,
 }
 
@@ -271,15 +274,21 @@ pub struct PredictionMarketState {
     pub total_supply: RegisterView<Amount>,
     pub next_market_id: RegisterView<MarketId>,
     // Price prediction state
-    pub predictions: MapView<String, PlayerPrediction>,  // Key: format!("{player_id}_{period}_{period_start}")
+    pub predictions: MapView<String, PlayerPrediction>, // Key: format!("{player_id}_{period}_{period_start}")
     pub period_prices: MapView<String, PeriodPriceData>, // Key: format!("{period}_{period_start}")
     pub current_market_price: RegisterView<MarketPrice>, // Current market price (updated by oracle)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Message {
-    MarketCreated { market_id: MarketId, creator: PlayerId },
-    MarketResolved { market_id: MarketId, winning_outcome: OutcomeId },
+    MarketCreated {
+        market_id: MarketId,
+        creator: PlayerId,
+    },
+    MarketResolved {
+        market_id: MarketId,
+        winning_outcome: OutcomeId,
+    },
     TradeExecuted {
         player_id: PlayerId,
         market_id: MarketId,
@@ -287,9 +296,26 @@ pub enum Message {
         shares: Amount,
         price: Amount,
     },
-    PlayerLeveledUp { player_id: PlayerId, new_level: u32 },
-    AchievementUnlocked { player_id: PlayerId, achievement_id: AchievementId },
-    GuildCreated { guild_id: GuildId, name: String },
-    PredictionMade { player_id: PlayerId, period: PredictionPeriod, outcome: PriceOutcome },
-    PredictionResolved { player_id: PlayerId, period: PredictionPeriod, correct: bool },
+    PlayerLeveledUp {
+        player_id: PlayerId,
+        new_level: u32,
+    },
+    AchievementUnlocked {
+        player_id: PlayerId,
+        achievement_id: AchievementId,
+    },
+    GuildCreated {
+        guild_id: GuildId,
+        name: String,
+    },
+    PredictionMade {
+        player_id: PlayerId,
+        period: PredictionPeriod,
+        outcome: PriceOutcome,
+    },
+    PredictionResolved {
+        player_id: PlayerId,
+        period: PredictionPeriod,
+        correct: bool,
+    },
 }

@@ -9,10 +9,9 @@ pub mod state;
 
 // Re-export types for convenience
 pub use state::{
-    MarketId, PlayerId, OutcomeId, GuildId, AchievementId,
-    MarketType, MarketStatus, ResolutionMethod,
-    GameConfig, Market, Player, Guild, Leaderboard,
-    PriceOutcome, PredictionPeriod, PlayerPrediction,
+    AchievementId, GameConfig, Guild, GuildId, Leaderboard, Market, MarketId, MarketStatus,
+    MarketType, OutcomeId, Player, PlayerId, PlayerPrediction, PredictionPeriod, PriceOutcome,
+    ResolutionMethod,
 };
 
 pub struct PredictiveManagerAbi;
@@ -30,10 +29,14 @@ impl ServiceAbi for PredictiveManagerAbi {
 #[derive(Debug, Deserialize, Serialize, GraphQLMutationRoot)]
 pub enum Operation {
     // Player operations
-    RegisterPlayer { display_name: Option<String> },
-    UpdateProfile { display_name: Option<String> },
+    RegisterPlayer {
+        display_name: Option<String>,
+    },
+    UpdateProfile {
+        display_name: Option<String>,
+    },
     ClaimDailyReward,
-    
+
     // Market operations
     CreateMarket {
         title: String,
@@ -48,25 +51,42 @@ pub enum Operation {
         market_id: MarketId, // Market to sell points to
         amount: Amount,
     },
-    
+
     // Point minting (Admin only)
-    MintPoints { amount: Amount },
-    
-    
+    MintPoints {
+        amount: Amount,
+    },
+
     // Guild operations
-    CreateGuild { name: String },
-    JoinGuild { guild_id: GuildId },
+    CreateGuild {
+        name: String,
+    },
+    JoinGuild {
+        guild_id: GuildId,
+    },
     LeaveGuild,
-    ContributeToGuild { amount: Amount },
-    
+    ContributeToGuild {
+        amount: Amount,
+    },
+
     // Admin operations
-    UpdateGameConfig { config: GameConfig },
-    
+    UpdateGameConfig {
+        config: GameConfig,
+    },
+
     // Price prediction operations
-    PredictDailyOutcome { outcome: PriceOutcome },
-    PredictWeeklyOutcome { outcome: PriceOutcome },
-    PredictMonthlyOutcome { outcome: PriceOutcome },
-    
+    PredictDailyOutcome {
+        outcome: PriceOutcome,
+    },
+    PredictWeeklyOutcome {
+        outcome: PriceOutcome,
+    },
+    PredictMonthlyOutcome {
+        outcome: PriceOutcome,
+    },
+
     // Oracle/Admin operations for price updates
-    UpdateMarketPrice { price: Amount },
+    UpdateMarketPrice {
+        price: Amount,
+    },
 }

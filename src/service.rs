@@ -4,12 +4,14 @@ use std::sync::Arc;
 
 use async_graphql::{EmptySubscription, Object, Schema};
 use linera_sdk::{
-    graphql::GraphQLMutationRoot, linera_base_types::{Amount, WithServiceAbi}, views::View, Service,
-    ServiceRuntime,
+    graphql::GraphQLMutationRoot,
+    linera_base_types::{Amount, WithServiceAbi},
+    views::View,
+    Service, ServiceRuntime,
 };
 
-use predictive_manager::Operation;
 use predictive_manager::state::*;
+use predictive_manager::Operation;
 
 // Wrapper to pass state reference through GraphQL context
 // We use a raw pointer because GraphQL requires 'static lifetime, but we know
@@ -66,7 +68,7 @@ impl Service for PredictiveManagerService {
         let state_wrapper = StateWrapper {
             state: &self.state as *const PredictionMarketState,
         };
-        
+
         Schema::build(
             QueryRoot,
             Operation::mutation_root(self.runtime.clone()),
@@ -94,7 +96,7 @@ impl QueryRoot {
     async fn player_total_points(
         &self,
         ctx: &async_graphql::Context<'_>,
-        player_id: PlayerId
+        player_id: PlayerId,
     ) -> async_graphql::Result<Amount> {
         let state_wrapper = ctx.data_unchecked::<StateWrapper>();
         let state = unsafe { state_wrapper.state() };
@@ -110,7 +112,7 @@ impl QueryRoot {
     async fn guild_total_points(
         &self,
         ctx: &async_graphql::Context<'_>,
-        guild_id: GuildId
+        guild_id: GuildId,
     ) -> async_graphql::Result<Amount> {
         let state_wrapper = ctx.data_unchecked::<StateWrapper>();
         let state = unsafe { state_wrapper.state() };
@@ -119,32 +121,36 @@ impl QueryRoot {
             .get(&guild_id)
             .await?
             .ok_or_else(|| async_graphql::Error::new("Guild not found"))?;
-        
+
         let mut total_guild_points = Amount::ZERO;
-        
+
         // Sum total points earned by all guild members (same logic as contract's get_guild_total_points)
         for member_id in &guild.members {
             if let Some(member) = state.players.get(member_id).await? {
                 total_guild_points = total_guild_points.saturating_add(member.total_earned);
             }
         }
-        
+
         Ok(total_guild_points)
     }
 
     /// Get all guilds that have been created (mirrors contract's get_all_guilds)
     async fn all_guilds(
         &self,
-        ctx: &async_graphql::Context<'_>
+        ctx: &async_graphql::Context<'_>,
     ) -> async_graphql::Result<Vec<Guild>> {
         let state_wrapper = ctx.data_unchecked::<StateWrapper>();
         let state = unsafe { state_wrapper.state() };
         let mut guilds = Vec::new();
-        state.guilds.for_each_index_value(|_guild_id, guild| {
-            // guild is Cow<'_, Guild>, convert to owned Guild
-            guilds.push(guild.into_owned());
-            Ok(())
-        }).await.map_err(|e| async_graphql::Error::new(format!("Failed to iterate guilds: {:?}", e)))?;
+        state
+            .guilds
+            .for_each_index_value(|_guild_id, guild| {
+                // guild is Cow<'_, Guild>, convert to owned Guild
+                guilds.push(guild.into_owned());
+                Ok(())
+            })
+            .await
+            .map_err(|e| async_graphql::Error::new(format!("Failed to iterate guilds: {:?}", e)))?;
         Ok(guilds)
     }
 
@@ -152,7 +158,7 @@ impl QueryRoot {
     async fn guild_members(
         &self,
         ctx: &async_graphql::Context<'_>,
-        guild_id: GuildId
+        guild_id: GuildId,
     ) -> async_graphql::Result<Vec<Player>> {
         let state_wrapper = ctx.data_unchecked::<StateWrapper>();
         let state = unsafe { state_wrapper.state() };
@@ -161,16 +167,16 @@ impl QueryRoot {
             .get(&guild_id)
             .await?
             .ok_or_else(|| async_graphql::Error::new("Guild not found"))?;
-        
+
         let mut members = Vec::new();
-        
+
         // Get all player data for guild members (same logic as contract's get_guild_members)
         for member_id in &guild.members {
             if let Some(player) = state.players.get(member_id).await? {
                 members.push(player.clone());
             }
         }
-        
+
         Ok(members)
     }
 
@@ -178,7 +184,7 @@ impl QueryRoot {
     async fn player(
         &self,
         ctx: &async_graphql::Context<'_>,
-        player_id: PlayerId
+        player_id: PlayerId,
     ) -> async_graphql::Result<Player> {
         let state_wrapper = ctx.data_unchecked::<StateWrapper>();
         let state = unsafe { state_wrapper.state() };
@@ -194,7 +200,7 @@ impl QueryRoot {
     async fn market(
         &self,
         ctx: &async_graphql::Context<'_>,
-        market_id: MarketId
+        market_id: MarketId,
     ) -> async_graphql::Result<Market> {
         let state_wrapper = ctx.data_unchecked::<StateWrapper>();
         let state = unsafe { state_wrapper.state() };
@@ -213,10 +219,12 @@ mod tests {
 
     use async_graphql::{Request, Response, Value};
     use futures::FutureExt as _;
-    use linera_sdk::{linera_base_types::Amount, util::BlockingWait, views::View, Service, ServiceRuntime};
+    use linera_sdk::{
+        linera_base_types::Amount, util::BlockingWait, views::View, Service, ServiceRuntime,
+    };
     use serde_json::json;
 
-    use super::{PredictiveManagerService, PredictionMarketState};
+    use super::{PredictionMarketState, PredictiveManagerService};
 
     #[test]
     fn query() {
@@ -235,7 +243,7 @@ mod tests {
             .now_or_never()
             .expect("Query should not await anything");
 
-        let expected = Response::new(Value::from_json(json!({"totalSupply": "100."})).unwrap());   // the value go exceeds
+        let expected = Response::new(Value::from_json(json!({"totalSupply": "100."})).unwrap()); // the value go exceeds
 
         assert_eq!(response, expected)
     }

@@ -15,8 +15,6 @@ use linera_sdk::{
 };
 use predictive_manager::{GameConfig, Operation, PriceOutcome};
 
-
-
 // ============================================================================
 // Player Registration Tests
 // ============================================================================
@@ -126,9 +124,7 @@ async fn test_player_registration_no_display_name() {
         .add_block(|block| {
             block.with_operation(
                 application_id,
-                Operation::RegisterPlayer {
-                    display_name: None,
-                },
+                Operation::RegisterPlayer { display_name: None },
             );
         })
         .await;
@@ -187,7 +183,6 @@ async fn test_profile_update_success() {
         .graphql_query(application_id, "query { totalSupply }")
         .await;
     assert!(response.get("totalSupply").is_some());
-
 }
 
 /// Test profile update without being registered
@@ -239,11 +234,12 @@ async fn test_daily_reward_success() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
-
 
     // Claim daily reward
     chain
@@ -268,7 +264,9 @@ async fn test_daily_reward_unregistered() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
@@ -296,11 +294,12 @@ async fn test_daily_reward_cooldown() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
-
 
     // Claim first time
     chain
@@ -336,11 +335,12 @@ async fn test_market_creation_insufficient_level() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
-
 
     // Try to create market at low level - should handle error gracefully
     chain
@@ -372,7 +372,9 @@ async fn test_market_creation_insufficient_balance() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
@@ -380,7 +382,7 @@ async fn test_market_creation_insufficient_balance() {
     // Create config with very high market creation requirements
     let mut config = GameConfig::default();
     config.initial_player_tokens = Amount::from_tokens(50); // Too low
-    
+
     let (validator2, module_id2) = TestValidator::with_current_module::<
         predictive_manager::PredictiveManagerAbi,
         (),
@@ -391,7 +393,6 @@ async fn test_market_creation_insufficient_balance() {
     let application_id2 = chain2
         .create_application(module_id2, (), config, vec![])
         .await;
-
 
     // Try to create market with insufficient balance - should handle error
     chain2
@@ -423,11 +424,12 @@ async fn test_market_creation_invalid_fee() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
-
 
     // Try to create market with fee > 100% - should handle error
     chain
@@ -463,11 +465,12 @@ async fn test_buy_shares_success() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
-
 
     // First need to create a market (this will fail at level 1, but we can still test the buy operation)
     // For now, just test that buy operation doesn't crash on non-existent market
@@ -499,11 +502,12 @@ async fn test_buy_shares_insufficient_balance() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
-
 
     // Try to buy shares with more tokens than available - should handle error
     chain
@@ -511,7 +515,7 @@ async fn test_buy_shares_insufficient_balance() {
             block.with_operation(
                 application_id,
                 Operation::BuyShares {
-                    market_id: 0, // Market may not exist, but test error handling
+                    market_id: 0,                        // Market may not exist, but test error handling
                     amount: Amount::from_tokens(100000), // Way more than player has
                 },
             );
@@ -534,11 +538,12 @@ async fn test_buy_shares_nonexistent_market() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
-
 
     // Try to buy from non-existent market - should handle error gracefully
     chain
@@ -573,11 +578,12 @@ async fn test_sell_shares_insufficient_level() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
-
 
     // Try to sell at level 1 (< 5 required) - should handle error
     chain
@@ -608,11 +614,12 @@ async fn test_sell_shares_insufficient_balance() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
-
 
     // Try to sell more than available - should handle error
     chain
@@ -643,11 +650,12 @@ async fn test_sell_shares_nonexistent_market() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
-
 
     // Try to sell to non-existent market - should handle error
     chain
@@ -682,11 +690,12 @@ async fn test_guild_creation_success() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
-
 
     chain
         .add_block(|block| {
@@ -715,11 +724,12 @@ async fn test_guild_creation_already_in_guild() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
-
 
     // Create first guild
     chain
@@ -761,19 +771,17 @@ async fn test_join_guild_nonexistent() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
 
-
     // Try to join non-existent guild - should handle error
     chain
         .add_block(|block| {
-            block.with_operation(
-                application_id,
-                Operation::JoinGuild { guild_id: 99999 },
-            );
+            block.with_operation(application_id, Operation::JoinGuild { guild_id: 99999 });
         })
         .await;
 
@@ -793,11 +801,12 @@ async fn test_join_guild_already_in_guild() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
-
 
     // Create guild (makes player a member)
     chain
@@ -814,10 +823,7 @@ async fn test_join_guild_already_in_guild() {
     // Try to join another guild - should handle error
     chain
         .add_block(|block| {
-            block.with_operation(
-                application_id,
-                Operation::JoinGuild { guild_id: 999 },
-            );
+            block.with_operation(application_id, Operation::JoinGuild { guild_id: 999 });
         })
         .await;
 
@@ -837,11 +843,12 @@ async fn test_leave_guild_not_member() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
-
 
     // Try to leave guild without being in one - should handle error
     chain
@@ -866,11 +873,12 @@ async fn test_contribute_to_guild_not_member() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
-
 
     // Try to contribute without being in guild - should handle error
     chain
@@ -900,11 +908,12 @@ async fn test_contribute_to_guild_insufficient_balance() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
-
 
     // Create guild
     chain
@@ -950,11 +959,12 @@ async fn test_mint_points_unauthorized() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
-
 
     // Try to mint points without admin - should handle error
     chain
@@ -984,11 +994,12 @@ async fn test_update_config_unauthorized() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
-
 
     let mut new_config = GameConfig::default();
     new_config.initial_player_tokens = Amount::from_tokens(2000);
@@ -1019,11 +1030,12 @@ async fn test_update_market_price_unauthorized() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
-
 
     // Try to update market price without admin - should handle error
     chain
@@ -1057,11 +1069,12 @@ async fn test_predict_daily_outcome_success() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
-
 
     // Make daily prediction
     chain
@@ -1091,11 +1104,12 @@ async fn test_predict_daily_outcome_duplicate() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
-
 
     // Make first prediction
     chain
@@ -1137,11 +1151,12 @@ async fn test_predict_weekly_outcome() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
-
 
     chain
         .add_block(|block| {
@@ -1170,11 +1185,12 @@ async fn test_predict_monthly_outcome() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
-
 
     chain
         .add_block(|block| {
@@ -1203,11 +1219,12 @@ async fn test_all_prediction_outcomes() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
-
 
     // Test Rise outcome
     chain
@@ -1256,7 +1273,9 @@ async fn test_complete_player_journey() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
@@ -1310,11 +1329,12 @@ async fn test_complete_guild_workflow() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
-
 
     // Create guild
     chain
@@ -1363,15 +1383,16 @@ async fn test_multiple_players_interaction() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
-    
+
     // Create multiple chains for different players
     let mut chain1 = validator.new_chain().await;
     let mut chain2 = validator.new_chain().await;
     let mut chain3 = validator.new_chain().await;
-
 
     // Player 1 creates guild
     chain1
@@ -1439,11 +1460,12 @@ async fn test_zero_amounts() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
-
 
     // Try operations with zero amounts - should handle gracefully
     chain
@@ -1497,11 +1519,12 @@ async fn test_maximum_values() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
-
 
     // Try operations with very large amounts
     let max_amount = Amount::from_tokens(u128::MAX);
@@ -1534,11 +1557,12 @@ async fn test_empty_strings() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
-
 
     // Update with empty string
     chain
@@ -1580,13 +1604,14 @@ async fn test_long_strings() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
 
     let long_name = "A".repeat(1000); // Very long name
-
 
     chain
         .add_block(|block| {
@@ -1615,11 +1640,12 @@ async fn test_rapid_operations() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
-
 
     // Perform many operations rapidly
     for i in 0..10 {
@@ -1657,11 +1683,12 @@ async fn test_fee_percent_boundaries() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
-
 
     // Test minimum fee (0%)
     chain
@@ -1707,11 +1734,12 @@ async fn test_multiple_period_predictions() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
-
 
     // Make predictions for all periods
     chain
@@ -1763,7 +1791,9 @@ async fn test_graphql_queries() {
     >()
     .await;
     let mut c = v.new_chain().await;
-    let application_id = c.create_application(m, (), GameConfig::default(), vec![]).await;
+    let application_id = c
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
     let validator = v;
     let _module_id = m;
     let mut chain = validator.new_chain().await;
@@ -1793,7 +1823,7 @@ async fn test_graphql_queries() {
         .await;
 
     // Test all GraphQL query functions
-    
+
     // 1. totalSupply - tested
     let QueryOutcome { response, .. } = chain
         .graphql_query(application_id, "query { totalSupply }")
@@ -1801,11 +1831,14 @@ async fn test_graphql_queries() {
     assert!(response.get("totalSupply").is_some());
 
     // 2. allGuilds - tested
-    let QueryOutcome { response: guild_response, .. } = chain
+    let QueryOutcome {
+        response: guild_response,
+        ..
+    } = chain
         .graphql_query(application_id, "query { allGuilds { id name founder } }")
         .await;
     assert!(guild_response.get("allGuilds").is_some());
-    
+
     // Extract guild ID and player ID from guild response
     let (guild_id, player_id) = if let Some(guilds) = guild_response["allGuilds"].as_array() {
         if let Some(first_guild) = guilds.first() {
@@ -1821,10 +1854,11 @@ async fn test_graphql_queries() {
 
     // 3. guildMembers - tested if we have a guild
     if let Some(gid) = guild_id {
-        let query = format!("query {{ guildMembers(guildId: {}) {{ id displayName tokenBalance }} }}", gid);
-        let QueryOutcome { response, .. } = chain
-            .graphql_query(application_id, &query)
-            .await;
+        let query = format!(
+            "query {{ guildMembers(guildId: {}) {{ id displayName tokenBalance }} }}",
+            gid
+        );
+        let QueryOutcome { response, .. } = chain.graphql_query(application_id, &query).await;
         // Should return array of members
         assert!(response.is_object() || response.is_array());
     }
@@ -1832,19 +1866,18 @@ async fn test_graphql_queries() {
     // 4. playerTotalPoints - tested if we have player ID
     if let Some(ref pid) = player_id {
         let query = format!("query {{ playerTotalPoints(playerId: \"{}\") }}", pid);
-        let QueryOutcome { response, .. } = chain
-            .graphql_query(application_id, &query)
-            .await;
+        let QueryOutcome { response, .. } = chain.graphql_query(application_id, &query).await;
         // Should return the player's total points
         assert!(response.get("playerTotalPoints").is_some());
     }
 
     // 5. player - tested if we have player ID
     if let Some(ref pid) = player_id {
-        let query = format!("query {{ player(playerId: \"{}\") {{ id displayName tokenBalance level }} }}", pid);
-        let QueryOutcome { response, .. } = chain
-            .graphql_query(application_id, &query)
-            .await;
+        let query = format!(
+            "query {{ player(playerId: \"{}\") {{ id displayName tokenBalance level }} }}",
+            pid
+        );
+        let QueryOutcome { response, .. } = chain.graphql_query(application_id, &query).await;
         // Should return player data
         assert!(response.get("player").is_some());
     }
@@ -1852,9 +1885,7 @@ async fn test_graphql_queries() {
     // 6. guildTotalPoints - tested if we have a guild
     if let Some(gid) = guild_id {
         let query = format!("query {{ guildTotalPoints(guildId: {}) }}", gid);
-        let QueryOutcome { response, .. } = chain
-            .graphql_query(application_id, &query)
-            .await;
+        let QueryOutcome { response, .. } = chain.graphql_query(application_id, &query).await;
         // Should return total points for the guild
         assert!(response.get("guildTotalPoints").is_some());
     }
