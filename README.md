@@ -1,6 +1,6 @@
 # Roxy Price - Blockchain-Based Prediction Market Game
 
-![Roxy Logo](./assets/logo.png)
+![Roxy Logo](https://github.com/user-attachments/assets/f57fe362-4e7c-40d6-977d-cd521fec1452)
 
 A decentralized prediction market game built on the Linera blockchain that combines social gaming, cryptocurrency price predictions, and a points-based economy.
 
