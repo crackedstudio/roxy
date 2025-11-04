@@ -5,7 +5,7 @@ use std::sync::Arc;
 use async_graphql::{EmptySubscription, Object, Schema};
 use linera_sdk::{
     graphql::GraphQLMutationRoot,
-    linera_base_types::{Amount, WithServiceAbi},
+    linera_base_types::{Amount, Timestamp, WithServiceAbi},
     views::View,
     Service, ServiceRuntime,
 };
@@ -22,6 +22,7 @@ use predictive_manager::Operation;
 // 3. No concurrent access to state during query execution
 struct StateWrapper {
     state: *const PredictionMarketState,
+    runtime: Arc<ServiceRuntime<PredictiveManagerService>>,
 }
 
 unsafe impl Send for StateWrapper {}
@@ -35,6 +36,11 @@ impl StateWrapper {
     #[inline]
     unsafe fn state(&self) -> &PredictionMarketState {
         &*self.state
+    }
+    
+    #[inline]
+    fn runtime(&self) -> &Arc<ServiceRuntime<PredictiveManagerService>> {
+        &self.runtime
     }
 }
 
@@ -63,10 +69,11 @@ impl Service for PredictiveManagerService {
     }
 
     async fn handle_query(&self, query: Self::Query) -> Self::QueryResponse {
-        // Pass state access through GraphQL data context using a raw pointer
+        // Pass state and runtime access through GraphQL data context using raw pointers
         // Safe because query execution completes within this method
         let state_wrapper = StateWrapper {
             state: &self.state as *const PredictionMarketState,
+            runtime: self.runtime.clone(),
         };
 
         Schema::build(
@@ -211,7 +218,144 @@ impl QueryRoot {
             .map(|m| m.clone())
             .ok_or_else(|| async_graphql::Error::new("Market not found"))
     }
+
+    /// Get the result of a player's daily prediction (mirrors contract's get_daily_outcome)
+    /// Returns whether the player's prediction was correct
+    async fn get_daily_outcome(
+        &self,
+        ctx: &async_graphql::Context<'_>,
+        player_id: PlayerId,
+    ) -> async_graphql::Result<bool> {
+        let state_wrapper = ctx.data_unchecked::<StateWrapper>();
+        let state = unsafe { state_wrapper.state() };
+        
+        // Verify player exists
+        state
+            .players
+            .get(&player_id)
+            .await?
+            .ok_or_else(|| async_graphql::Error::new("Player not found"))?;
+
+        // Get current time from runtime
+        let runtime = state_wrapper.runtime();
+        let current_time = runtime.system_time();
+        let period_start = get_daily_period_start(current_time);
+        let prediction_key = format!(
+            "{:?}_{:?}_{}",
+            player_id,
+            PredictionPeriod::Daily,
+            period_start.micros()
+        );
+
+        // Get the prediction
+        if let Some(prediction) = state.predictions.get(&prediction_key).await? {
+            if let Some(correct) = prediction.correct {
+                return Ok(correct);
+            }
+        }
+
+        Ok(false) // Prediction not found or not resolved
+    }
+
+    /// Get the result of a player's weekly prediction (mirrors contract's get_weekly_outcome)
+    /// Returns whether the player's prediction was correct
+    async fn get_weekly_outcome(
+        &self,
+        ctx: &async_graphql::Context<'_>,
+        player_id: PlayerId,
+    ) -> async_graphql::Result<bool> {
+        let state_wrapper = ctx.data_unchecked::<StateWrapper>();
+        let state = unsafe { state_wrapper.state() };
+        
+        // Verify player exists
+        state
+            .players
+            .get(&player_id)
+            .await?
+            .ok_or_else(|| async_graphql::Error::new("Player not found"))?;
+
+        // Get current time from runtime
+        let runtime = state_wrapper.runtime();
+        let current_time = runtime.system_time();
+        let period_start = get_weekly_period_start(current_time);
+        let prediction_key = format!(
+            "{:?}_{:?}_{}",
+            player_id,
+            PredictionPeriod::Weekly,
+            period_start.micros()
+        );
+
+        // Get the prediction
+        if let Some(prediction) = state.predictions.get(&prediction_key).await? {
+            if let Some(correct) = prediction.correct {
+                return Ok(correct);
+            }
+        }
+
+        Ok(false) // Prediction not found or not resolved
+    }
+
+    /// Get the result of a player's monthly prediction (mirrors contract's get_monthly_outcome)
+    /// Returns whether the player's prediction was correct
+    async fn get_monthly_outcome(
+        &self,
+        ctx: &async_graphql::Context<'_>,
+        player_id: PlayerId,
+    ) -> async_graphql::Result<bool> {
+        let state_wrapper = ctx.data_unchecked::<StateWrapper>();
+        let state = unsafe { state_wrapper.state() };
+        
+        // Verify player exists
+        state
+            .players
+            .get(&player_id)
+            .await?
+            .ok_or_else(|| async_graphql::Error::new("Player not found"))?;
+
+        // Get current time from runtime
+        let runtime = state_wrapper.runtime();
+        let current_time = runtime.system_time();
+        let period_start = get_monthly_period_start(current_time);
+        let prediction_key = format!(
+            "{:?}_{:?}_{}",
+            player_id,
+            PredictionPeriod::Monthly,
+            period_start.micros()
+        );
+
+        // Get the prediction
+        if let Some(prediction) = state.predictions.get(&prediction_key).await? {
+            if let Some(correct) = prediction.correct {
+                return Ok(correct);
+            }
+        }
+
+        Ok(false) // Prediction not found or not resolved
+    }
 }
+
+// Helper functions for period calculations 
+fn get_daily_period_start(timestamp: Timestamp) -> Timestamp {
+   
+    let one_day_micros = 24 * 60 * 60 * 1_000_000;
+    let day_start = (timestamp.micros() / one_day_micros) * one_day_micros;
+    Timestamp::from(day_start)
+}
+
+fn get_weekly_period_start(timestamp: Timestamp) -> Timestamp {
+
+    let one_week_micros = 7 * 24 * 60 * 60 * 1_000_000;
+    let week_start = (timestamp.micros() / one_week_micros) * one_week_micros;
+    Timestamp::from(week_start)
+}
+
+fn get_monthly_period_start(timestamp: Timestamp) -> Timestamp {
+ 
+    let one_month_micros = 30 * 24 * 60 * 60 * 1_000_000; // Approximate
+    let month_start = (timestamp.micros() / one_month_micros) * one_month_micros;
+    Timestamp::from(month_start)
+}
+
 
 #[cfg(test)]
 mod tests {

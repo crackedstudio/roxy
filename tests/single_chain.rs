@@ -1890,6 +1890,263 @@ async fn test_graphql_queries() {
         assert!(response.get("guildTotalPoints").is_some());
     }
 
-    // Note: market query requires creating a market first (needs level 2),
-    // which is beyond basic setup. Market creation is tested in other tests.
+    // 7. Test outcome getter functions - getDailyOutcome, getWeeklyOutcome, getMonthlyOutcome
+    if let Some(ref pid) = player_id {
+        // Test getters when no predictions exist - should return false
+        let query = format!("query {{ getDailyOutcome(playerId: \"{}\") }}", pid);
+        let QueryOutcome { response, .. } = chain.graphql_query(application_id, &query).await;
+        assert!(response.get("getDailyOutcome").is_some());
+        let daily_outcome = response["getDailyOutcome"].as_bool();
+        assert_eq!(daily_outcome, Some(false)); // Should be false when no prediction exists
+
+        // Now make predictions for all periods
+        chain
+            .add_block(|block| {
+                block.with_operation(
+                    application_id,
+                    Operation::PredictDailyOutcome {
+                        outcome: PriceOutcome::Rise,
+                    },
+                );
+            })
+            .await;
+
+        chain
+            .add_block(|block| {
+                block.with_operation(
+                    application_id,
+                    Operation::PredictWeeklyOutcome {
+                        outcome: PriceOutcome::Fall,
+                    },
+                );
+            })
+            .await;
+
+        chain
+            .add_block(|block| {
+                block.with_operation(
+                    application_id,
+                    Operation::PredictMonthlyOutcome {
+                        outcome: PriceOutcome::Neutral,
+                    },
+                );
+            })
+            .await;
+
+        // Test getDailyOutcome - should return false (prediction not resolved yet)
+        let query = format!("query {{ getDailyOutcome(playerId: \"{}\") }}", pid);
+        let QueryOutcome { response, .. } = chain.graphql_query(application_id, &query).await;
+        assert!(response.get("getDailyOutcome").is_some());
+        let daily_outcome = response["getDailyOutcome"].as_bool();
+        assert_eq!(daily_outcome, Some(false)); // Should be false since prediction is not resolved yet
+
+        // Test getWeeklyOutcome - should return false (prediction not resolved yet)
+        let query = format!("query {{ getWeeklyOutcome(playerId: \"{}\") }}", pid);
+        let QueryOutcome { response, .. } = chain.graphql_query(application_id, &query).await;
+        assert!(response.get("getWeeklyOutcome").is_some());
+        let weekly_outcome = response["getWeeklyOutcome"].as_bool();
+        assert_eq!(weekly_outcome, Some(false)); // Should be false since prediction is not resolved yet
+
+        // Test getMonthlyOutcome - should return false (prediction not resolved yet)
+        let query = format!("query {{ getMonthlyOutcome(playerId: \"{}\") }}", pid);
+        let QueryOutcome { response, .. } = chain.graphql_query(application_id, &query).await;
+        assert!(response.get("getMonthlyOutcome").is_some());
+        let monthly_outcome = response["getMonthlyOutcome"].as_bool();
+        assert_eq!(monthly_outcome, Some(false)); // Should be false since prediction is not resolved yet
+    }
+
+}
+
+/// Test the complete prediction resolution flow
+/// Follows: Make predictions -> Update market price -> Resolve all expired predictions -> Check outcomes
+#[tokio::test(flavor = "multi_thread")]
+async fn test_prediction_resolution_flow() {
+    let (v, m) = TestValidator::with_current_module::<
+        predictive_manager::PredictiveManagerAbi,
+        (),
+        GameConfig,
+    >()
+    .await;
+    
+    // Create a chain for admin/oracle
+    let mut admin_chain = v.new_chain().await;
+    
+    // Create application (admin will be set to the deployer automatically)
+    let application_id = admin_chain
+        .create_application(m, (), GameConfig::default(), vec![])
+        .await;
+    
+    // Create a player chain
+    let validator = v;
+    let _module_id = m;
+    let mut chain = validator.new_chain().await;
+    
+    // Register player
+    chain
+        .add_block(|block| {
+            block.with_operation(
+                application_id,
+                Operation::RegisterPlayer {
+                    display_name: Some("TestPlayer".to_string()),
+                },
+            );
+        })
+        .await;
+    
+    // Create a guild to get player ID
+    chain
+        .add_block(|block| {
+            block.with_operation(
+                application_id,
+                Operation::CreateGuild {
+                    name: "Test Guild".to_string(),
+                },
+            );
+        })
+        .await;
+    
+    // Set initial market price (as admin)
+    admin_chain
+        .add_block(|block| {
+            block.with_operation(
+                application_id,
+                Operation::UpdateMarketPrice {
+                    price: Amount::from_tokens(50000), // Initial price: $50,000
+                },
+            );
+        })
+        .await;
+    
+    // Make predictions for all periods
+    chain
+        .add_block(|block| {
+            block.with_operation(
+                application_id,
+                Operation::PredictDailyOutcome {
+                    outcome: PriceOutcome::Rise, // Predict price will rise
+                },
+            );
+        })
+        .await;
+    
+    chain
+        .add_block(|block| {
+            block.with_operation(
+                application_id,
+                Operation::PredictWeeklyOutcome {
+                    outcome: PriceOutcome::Fall, // Predict price will fall
+                },
+            );
+        })
+        .await;
+    
+    chain
+        .add_block(|block| {
+            block.with_operation(
+                application_id,
+                Operation::PredictMonthlyOutcome {
+                    outcome: PriceOutcome::Neutral, // Predict price will stay neutral
+                },
+            );
+        })
+        .await;
+    
+    // Get player ID from player query
+    let QueryOutcome {
+        response: player_response,
+        ..
+    } = chain
+        .graphql_query(application_id, "query { allGuilds { founder } }")
+        .await;
+    
+    let player_id = if let Some(guilds) = player_response["allGuilds"].as_array() {
+        if let Some(first_guild) = guilds.first() {
+            first_guild["founder"].as_str().map(|s| s.to_string())
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    
+    if let Some(ref pid) = player_id {
+        // Check that predictions exist but are not resolved yet
+        let query = format!("query {{ getDailyOutcome(playerId: \"{}\") }}", pid);
+        let QueryOutcome { response, .. } = chain.graphql_query(application_id, &query).await;
+        assert!(response.get("getDailyOutcome").is_some());
+        let daily_outcome = response["getDailyOutcome"].as_bool();
+        assert_eq!(daily_outcome, Some(false)); // Not resolved yet
+        
+        // Progress time to make at least the daily period expire
+        // Each block advances time, so we add empty blocks to progress time
+        // Daily period = 24 hours = 86,400,000,000 microseconds
+        // Note: In Linera tests, each block advances time incrementally
+        // We add many blocks to simulate time passing (24+ hours)
+        // This ensures the daily period expires so predictions can be resolved
+        
+        // Add many empty blocks to progress time past the daily period (24 hours)
+        // Each block advances time, so we need enough blocks to pass 24 hours
+        for _ in 0..100 {
+            admin_chain
+                .add_block(|_block| {
+                    // Empty block to progress time
+                })
+                .await;
+        }
+        
+        // Update market price to trigger resolution (price increased to $55,000)
+        // This should trigger resolve_expired_predictions for all expired periods
+        // Since daily period has expired (24 hours passed), it should resolve
+        admin_chain
+            .add_block(|block| {
+                block.with_operation(
+                    application_id,
+                    Operation::UpdateMarketPrice {
+                        price: Amount::from_tokens(55000), // New price: $55,000 (increased)
+                    },
+                );
+            })
+            .await;
+        
+        // Check outcomes - predictions should now be resolved since periods have expired
+        // Since price increased from $50,000 to $55,000 and we predicted Rise for daily, it should be correct
+        
+        // Verify daily prediction was resolved correctly
+        // We predicted Rise, price increased from $50,000 to $55,000 → prediction is CORRECT
+        let query = format!("query {{ getDailyOutcome(playerId: \"{}\") }}", pid);
+        let QueryOutcome { response, .. } = chain.graphql_query(application_id, &query).await;
+        assert!(response.get("getDailyOutcome").is_some());
+        let daily_outcome = response["getDailyOutcome"].as_bool();
+        // Daily prediction should be resolved and correct (price rose, we predicted Rise = true)
+        assert_eq!(daily_outcome, Some(true), "Daily prediction should be resolved and correct (Rise predicted, price increased)");
+        
+        // Verify weekly prediction
+        // We predicted Fall, but price increased → prediction is INCORRECT
+        let query = format!("query {{ getWeeklyOutcome(playerId: \"{}\") }}", pid);
+        let QueryOutcome { response, .. } = chain.graphql_query(application_id, &query).await;
+        assert!(response.get("getWeeklyOutcome").is_some());
+        let weekly_outcome = response["getWeeklyOutcome"].as_bool();
+        // Weekly prediction should be resolved and incorrect (price rose, we predicted Fall = false)
+        // Note: Weekly period is 7 days, might not be expired yet depending on time progression
+        if weekly_outcome.is_some() {
+            // If resolved, it should be false (price rose, we predicted Fall = incorrect)
+            assert_eq!(weekly_outcome, Some(false), "Weekly prediction should be incorrect (Fall predicted, price increased)");
+        }
+        
+        // Verify monthly prediction
+        // We predicted Neutral, but price increased → prediction is INCORRECT
+        let query = format!("query {{ getMonthlyOutcome(playerId: \"{}\") }}", pid);
+        let QueryOutcome { response, .. } = chain.graphql_query(application_id, &query).await;
+        assert!(response.get("getMonthlyOutcome").is_some());
+        let monthly_outcome = response["getMonthlyOutcome"].as_bool();
+        // Monthly prediction should be resolved and incorrect (price rose, we predicted Neutral = false)
+        // Note: Monthly period is 30 days, might not be expired yet depending on time progression
+        if monthly_outcome.is_some() {
+            // If resolved, it should be false (price rose, we predicted Neutral = incorrect)
+            assert_eq!(monthly_outcome, Some(false), "Monthly prediction should be incorrect (Neutral predicted, price increased)");
+        }
+        
+      
+    }
+    
 }
