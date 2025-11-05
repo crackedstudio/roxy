@@ -128,6 +128,9 @@ impl Contract for PredictionMarketContract {
         let player_id = self.runtime.authenticated_signer().unwrap();
         let current_time = self.runtime.system_time();
 
+        // Register this chain if not already registered (for cross-chain coordination)
+        self.ensure_chain_registered().await;
+
         match operation {
             predictive_manager::Operation::RegisterPlayer { display_name } => {
                 let _ = self
@@ -202,6 +205,7 @@ impl Contract for PredictionMarketContract {
 
     async fn execute_message(&mut self, message: Message) {
         match message {
+            // Local events (same chain)
             Message::MarketCreated { .. } => {}
             Message::MarketResolved { .. } => {}
             Message::TradeExecuted { .. } => {}
@@ -210,6 +214,97 @@ impl Contract for PredictionMarketContract {
             Message::GuildCreated { .. } => {}
             Message::PredictionMade { .. } => {}
             Message::PredictionResolved { .. } => {}
+            // Cross-chain messages for horizontal scaling
+            Message::GlobalMarketCreated {
+                market_id,
+                creator,
+                title,
+                chain_id,
+            } => {
+                // Update global market registry
+                let global_market = GlobalMarketInfo {
+                    market_id,
+                    creator,
+                    title,
+                    chain_id,
+                    status: MarketStatus::Active,
+                    created_at: self.runtime.system_time(),
+                };
+                let _ = self.state.global_markets.insert(&market_id, global_market);
+            }
+            Message::GlobalPlayerRegistered {
+                player_id,
+                display_name,
+                chain_id,
+            } => {
+                // Update global player registry
+                let global_player = GlobalPlayerInfo {
+                    player_id,
+                    display_name,
+                    chain_id,
+                    total_earned: Amount::ZERO,
+                    total_profit: Amount::ZERO,
+                    level: 1,
+                    last_updated: self.runtime.system_time(),
+                };
+                let _ = self.state.global_players.insert(&player_id, global_player);
+            }
+            Message::GlobalPlayerUpdated {
+                player_id,
+                total_earned,
+                total_profit,
+                level,
+                chain_id,
+            } => {
+                // Update global player info
+                if let Some(mut global_player) = self.state.global_players.get(&player_id).await.ok().flatten() {
+                    global_player.total_earned = total_earned;
+                    global_player.total_profit = total_profit;
+                    global_player.level = level;
+                    global_player.chain_id = chain_id;
+                    global_player.last_updated = self.runtime.system_time();
+                    let _ = self.state.global_players.insert(&player_id, global_player);
+                }
+                // Update global leaderboard
+                self.update_global_leaderboard().await;
+            }
+            Message::GlobalGuildCreated {
+                guild_id,
+                name,
+                founder,
+                chain_id,
+            } => {
+                // Update global guild registry
+                let global_guild = GlobalGuildInfo {
+                    guild_id,
+                    name,
+                    founder,
+                    chain_id,
+                    member_count: 1,
+                    total_guild_profit: Amount::ZERO,
+                    created_at: self.runtime.system_time(),
+                };
+                let _ = self.state.global_guilds.insert(&guild_id, global_guild);
+            }
+            Message::GlobalLeaderboardUpdate {
+                player_id,
+                total_profit,
+                win_rate,
+                level,
+                chain_id: _,
+            } => {
+                // Update global leaderboard with cross-chain data
+                self.update_global_leaderboard_with_player(player_id, total_profit, win_rate, level).await;
+            }
+            Message::GlobalPriceUpdate { price, timestamp, chain_id: _ } => {
+                // Update global price (propagate across chains)
+                let market_price = MarketPrice { price, timestamp };
+                self.state.current_market_price.set(market_price);
+            }
+            Message::ChainRegistered { chain_id, timestamp } => {
+                // Register a new chain that has the application
+                let _ = self.state.subscribed_chains.insert(&chain_id, timestamp);
+            }
         }
     }
 
@@ -319,6 +414,7 @@ impl PredictionMarketContract {
 
         // Give initial points to the player (no external transfer needed)
 
+        let display_name_clone = display_name.clone();
         let player = Player {
             id: player_id,
             display_name,
@@ -344,6 +440,10 @@ impl PredictionMarketContract {
 
         let total_supply = self.state.total_supply.get().saturating_add(initial_tokens);
         self.state.total_supply.set(total_supply);
+
+        // Broadcast player registration to all chains for horizontal scaling
+        self.broadcast_global_player_registered(player_id, display_name_clone).await;
+
         Ok(())
     }
     /// Update a player's profile information
@@ -466,6 +566,7 @@ impl PredictionMarketContract {
             .await?;
 
         let market_id = self.generate_market_id().await?;
+        let title_clone = title.clone();
 
         let market = Market {
             id: market_id,
@@ -497,6 +598,9 @@ impl PredictionMarketContract {
         self.runtime
             .prepare_message(Message::MarketCreated { market_id, creator })
             .send_to(self.runtime.chain_id());
+
+        // Broadcast market creation to all chains for horizontal scaling
+        self.broadcast_global_market_created(market_id, creator, title_clone).await;
 
         Ok(())
     }
@@ -790,9 +894,12 @@ impl PredictionMarketContract {
         self.runtime
             .prepare_message(Message::GuildCreated {
                 guild_id: new_id,
-                name,
+                name: name.clone(),
             })
             .send_to(self.runtime.chain_id());
+
+        // Broadcast guild creation to all chains for horizontal scaling
+        self.broadcast_global_guild_created(new_id, name, founder).await;
         Ok(())
     }
 
@@ -1607,6 +1714,9 @@ impl PredictionMarketContract {
         };
         self.state.current_market_price.set(market_price);
 
+        // Broadcast price update to all chains for horizontal scaling
+        self.broadcast_global_price_update(price, current_time).await;
+
         // Try to resolve expired periods and their predictions
         // This compares end_price (from crypto API) to initial_price (from crypto API)
         self.resolve_expired_predictions(current_time).await?;
@@ -1879,7 +1989,7 @@ impl PredictionMarketContract {
             PredictionPeriod::Monthly => 500,
         };
         self.add_experience(&mut player, xp_reward).await?;
-        self.state.players.insert(player_id, player)?;
+        self.state.players.insert(player_id, player.clone())?;
 
         // Update total supply
         let current_supply = self.state.total_supply.get();
@@ -1889,6 +1999,15 @@ impl PredictionMarketContract {
 
         // Update leaderboard after awarding points
         self.update_enhanced_leaderboard().await;
+
+        // Broadcast player update to all chains for horizontal scaling
+        self.broadcast_global_player_updated(
+            *player_id,
+            player.total_earned,
+            player.total_profit,
+            player.level,
+        )
+        .await;
 
         Ok(())
     }
@@ -2037,5 +2156,266 @@ impl PredictionMarketContract {
         }
 
         Ok(())
+    }
+
+    // ============================================================================
+    // Cross-Chain Broadcasting Functions (Horizontal Scaling)
+    // ============================================================================
+
+    /// Ensure this chain is registered in the chain registry for cross-chain coordination
+    async fn ensure_chain_registered(&mut self) {
+        let chain_id = self.runtime.chain_id();
+        let current_time = self.runtime.system_time();
+
+        // Check if already registered
+        if self.state.subscribed_chains.get(&chain_id).await.ok().flatten().is_none() {
+            // Register locally
+            let _ = self.state.subscribed_chains.insert(&chain_id, current_time);
+
+            // Broadcast registration to all other chains
+            // This allows other chains to know about this chain
+            self.broadcast_to_all_chains(Message::ChainRegistered {
+                chain_id,
+                timestamp: current_time,
+            })
+            .await;
+        }
+    }
+
+    /// Broadcast a message to all chains that have the application
+    /// This implements proper cross-chain messaging according to Linera's architecture
+    async fn broadcast_to_all_chains(&mut self, message: Message) {
+        let current_chain_id = self.runtime.chain_id();
+        let mut chains_to_notify = Vec::new();
+
+        // Collect all subscribed chains (excluding current chain to avoid self-messaging)
+        self.state
+            .subscribed_chains
+            .for_each_index_value(|chain_id, _timestamp| {
+                if chain_id != current_chain_id {
+                    chains_to_notify.push(chain_id);
+                }
+                Ok(())
+            })
+            .await
+            .ok();
+
+        // Send message to each subscribed chain
+        // Use with_authentication() and with_tracking() for reliable delivery
+        for target_chain_id in chains_to_notify {
+            self.runtime
+                .prepare_message(message.clone())
+                .with_authentication()
+                .with_tracking()
+                .send_to(target_chain_id);
+        }
+    }
+
+    /// Broadcast player registration to all chains for horizontal scaling
+    /// This allows all chains to maintain a global registry of players
+    async fn broadcast_global_player_registered(
+        &mut self,
+        player_id: PlayerId,
+        display_name: Option<String>,
+    ) {
+        let chain_id = self.runtime.chain_id();
+        // Update local global registry
+        let display_name_clone = display_name.clone();
+        let global_player = GlobalPlayerInfo {
+            player_id,
+            display_name: display_name_clone.clone(),
+            chain_id,
+            total_earned: Amount::ZERO,
+            total_profit: Amount::ZERO,
+            level: 1,
+            last_updated: self.runtime.system_time(),
+        };
+        let _ = self.state.global_players.insert(&player_id, global_player);
+
+        // Broadcast to all subscribed chains (proper cross-chain messaging)
+        self.broadcast_to_all_chains(Message::GlobalPlayerRegistered {
+            player_id,
+            display_name: display_name_clone,
+            chain_id,
+        })
+        .await;
+    }
+
+    /// Broadcast market creation to all chains for horizontal scaling
+    async fn broadcast_global_market_created(
+        &mut self,
+        market_id: MarketId,
+        creator: PlayerId,
+        title: String,
+    ) {
+        let chain_id = self.runtime.chain_id();
+        // Update local global registry
+        let global_market = GlobalMarketInfo {
+            market_id,
+            creator,
+            title: title.clone(),
+            chain_id,
+            status: MarketStatus::Active,
+            created_at: self.runtime.system_time(),
+        };
+        let _ = self.state.global_markets.insert(&market_id, global_market);
+
+        // Broadcast to all subscribed chains (proper cross-chain messaging)
+        self.broadcast_to_all_chains(Message::GlobalMarketCreated {
+            market_id,
+            creator,
+            title,
+            chain_id,
+        })
+        .await;
+    }
+
+    /// Broadcast guild creation to all chains for horizontal scaling
+    async fn broadcast_global_guild_created(
+        &mut self,
+        guild_id: GuildId,
+        name: String,
+        founder: PlayerId,
+    ) {
+        let chain_id = self.runtime.chain_id();
+        // Update local global registry
+        let global_guild = GlobalGuildInfo {
+            guild_id,
+            name: name.clone(),
+            founder,
+            chain_id,
+            member_count: 1,
+            total_guild_profit: Amount::ZERO,
+            created_at: self.runtime.system_time(),
+        };
+        let _ = self.state.global_guilds.insert(&guild_id, global_guild);
+
+        // Broadcast to all subscribed chains (proper cross-chain messaging)
+        self.broadcast_to_all_chains(Message::GlobalGuildCreated {
+            guild_id,
+            name,
+            founder,
+            chain_id,
+        })
+        .await;
+    }
+
+    /// Broadcast player update to all chains when significant changes occur
+    async fn broadcast_global_player_updated(
+        &mut self,
+        player_id: PlayerId,
+        total_earned: Amount,
+        total_profit: Amount,
+        level: u32,
+    ) {
+        let chain_id = self.runtime.chain_id();
+        // Update local global registry
+        if let Some(mut global_player) = self.state.global_players.get(&player_id).await.ok().flatten() {
+            global_player.total_earned = total_earned;
+            global_player.total_profit = total_profit;
+            global_player.level = level;
+            global_player.chain_id = chain_id;
+            global_player.last_updated = self.runtime.system_time();
+            let _ = self.state.global_players.insert(&player_id, global_player);
+        }
+
+        // Broadcast to all subscribed chains (proper cross-chain messaging)
+        self.broadcast_to_all_chains(Message::GlobalPlayerUpdated {
+            player_id,
+            total_earned,
+            total_profit,
+            level,
+            chain_id,
+        })
+        .await;
+    }
+
+    /// Broadcast price update to all chains for horizontal scaling
+    async fn broadcast_global_price_update(&mut self, price: Amount, timestamp: Timestamp) {
+        let chain_id = self.runtime.chain_id();
+        // Broadcast to all subscribed chains (proper cross-chain messaging)
+        self.broadcast_to_all_chains(Message::GlobalPriceUpdate {
+            price,
+            timestamp,
+            chain_id,
+        })
+        .await;
+    }
+
+    /// Update global leaderboard by aggregating data from all chains
+    async fn update_global_leaderboard(&mut self) {
+        // Collect all players from global registry
+        let mut all_players = Vec::new();
+        self.state
+            .global_players
+            .for_each_index_value(|player_id, global_player| {
+                all_players.push((player_id, global_player.clone()));
+                Ok(())
+            })
+            .await
+            .ok();
+
+        // Sort by total profit and take top 50
+        all_players.sort_by(|a, b| {
+            b.1.total_profit
+                .cmp(&a.1.total_profit)
+                .then_with(|| b.1.level.cmp(&a.1.level))
+        });
+
+        let top_traders: Vec<LeaderboardEntry> = all_players
+            .iter()
+            .take(50)
+            .map(|(player_id, global_player)| {
+                // Calculate win rate (simplified - in real implementation would track wins/losses)
+                let win_rate = if global_player.total_earned > Amount::ZERO {
+                    // Estimate win rate based on profit vs earned ratio
+                    let profit_tokens: u128 = global_player.total_profit.into();
+                    let earned_tokens: u128 = global_player.total_earned.into();
+                    if earned_tokens > 0 {
+                        let profit_f64 = profit_tokens as f64;
+                        let earned_f64 = earned_tokens as f64;
+                        (profit_f64 / earned_f64).min(1.0).max(0.0)
+                    } else {
+                        0.0
+                    }
+                } else {
+                    0.0
+                };
+
+                LeaderboardEntry {
+                    player_id: *player_id,
+                    display_name: global_player.display_name.clone(),
+                    total_profit: global_player.total_profit,
+                    win_rate,
+                    level: global_player.level,
+                }
+            })
+            .collect();
+
+        // Update global leaderboard
+        let mut global_leaderboard = self.state.global_leaderboard.get().clone();
+        global_leaderboard.top_traders = top_traders;
+        global_leaderboard.last_updated = self.runtime.system_time();
+        self.state.global_leaderboard.set(global_leaderboard);
+    }
+
+    /// Update global leaderboard with a specific player's data
+    async fn update_global_leaderboard_with_player(
+        &mut self,
+        player_id: PlayerId,
+        total_profit: Amount,
+        _win_rate: f64,
+        level: u32,
+    ) {
+        // Update the player's global info
+        if let Some(mut global_player) = self.state.global_players.get(&player_id).await.ok().flatten() {
+            global_player.total_profit = total_profit;
+            global_player.level = level;
+            global_player.last_updated = self.runtime.system_time();
+            let _ = self.state.global_players.insert(&player_id, global_player);
+        }
+
+        // Update global leaderboard
+        self.update_global_leaderboard().await;
     }
 }

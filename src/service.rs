@@ -332,6 +332,74 @@ impl QueryRoot {
 
         Ok(false) // Prediction not found or not resolved
     }
+
+    /// Get global leaderboard (aggregated across all chains)
+    /// Returns the top players and guilds from all chains
+    async fn global_leaderboard(
+        &self,
+        ctx: &async_graphql::Context<'_>,
+    ) -> async_graphql::Result<Leaderboard> {
+        let state_wrapper = ctx.data_unchecked::<StateWrapper>();
+        let state = unsafe { state_wrapper.state() };
+        Ok(state.global_leaderboard.get().clone())
+    }
+
+    /// Get all global players (across all chains)
+    async fn global_players(
+        &self,
+        ctx: &async_graphql::Context<'_>,
+    ) -> async_graphql::Result<Vec<GlobalPlayerInfo>> {
+        let state_wrapper = ctx.data_unchecked::<StateWrapper>();
+        let state = unsafe { state_wrapper.state() };
+        let mut players = Vec::new();
+        state
+            .global_players
+            .for_each_index_value(|_player_id, player| {
+                players.push(player.into_owned());
+                Ok(())
+            })
+            .await
+            .map_err(|e| async_graphql::Error::new(format!("Failed to iterate global players: {:?}", e)))?;
+        Ok(players)
+    }
+
+    /// Get all global markets (across all chains)
+    async fn global_markets(
+        &self,
+        ctx: &async_graphql::Context<'_>,
+    ) -> async_graphql::Result<Vec<GlobalMarketInfo>> {
+        let state_wrapper = ctx.data_unchecked::<StateWrapper>();
+        let state = unsafe { state_wrapper.state() };
+        let mut markets = Vec::new();
+        state
+            .global_markets
+            .for_each_index_value(|_market_id, market| {
+                markets.push(market.into_owned());
+                Ok(())
+            })
+            .await
+            .map_err(|e| async_graphql::Error::new(format!("Failed to iterate global markets: {:?}", e)))?;
+        Ok(markets)
+    }
+
+    /// Get all global guilds (across all chains)
+    async fn global_guilds(
+        &self,
+        ctx: &async_graphql::Context<'_>,
+    ) -> async_graphql::Result<Vec<GlobalGuildInfo>> {
+        let state_wrapper = ctx.data_unchecked::<StateWrapper>();
+        let state = unsafe { state_wrapper.state() };
+        let mut guilds = Vec::new();
+        state
+            .global_guilds
+            .for_each_index_value(|_guild_id, guild| {
+                guilds.push(guild.into_owned());
+                Ok(())
+            })
+            .await
+            .map_err(|e| async_graphql::Error::new(format!("Failed to iterate global guilds: {:?}", e)))?;
+        Ok(guilds)
+    }
 }
 
 // Helper functions for period calculations

@@ -1,4 +1,4 @@
-use linera_sdk::linera_base_types::{AccountOwner, Amount, Timestamp};
+use linera_sdk::linera_base_types::{AccountOwner, Amount, ChainId, Timestamp};
 use linera_sdk::views::{linera_views, MapView, RegisterView, RootView, ViewStorageContext};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -117,7 +117,7 @@ pub struct Player {
     pub active_markets: Vec<MarketId>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, async_graphql::SimpleObject)]
 pub struct Leaderboard {
     pub top_traders: Vec<LeaderboardEntry>,
     pub top_guilds: Vec<GuildLeaderboardEntry>,
@@ -134,7 +134,7 @@ impl Default for Leaderboard {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, async_graphql::SimpleObject)]
 pub struct LeaderboardEntry {
     pub player_id: PlayerId,
     pub display_name: Option<String>,
@@ -155,7 +155,7 @@ pub struct Guild {
     pub shared_pool: Amount,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, async_graphql::SimpleObject)]
 pub struct GuildLeaderboardEntry {
     pub guild_id: GuildId,
     pub name: String,
@@ -277,10 +277,53 @@ pub struct PredictionMarketState {
     pub predictions: MapView<String, PlayerPrediction>, // Key: format!("{player_id}_{period}_{period_start}")
     pub period_prices: MapView<String, PeriodPriceData>, // Key: format!("{period}_{period_start}")
     pub current_market_price: RegisterView<MarketPrice>, // Current market price (updated by oracle)
+    // Global state for horizontal scaling (cross-chain)
+    pub global_players: MapView<PlayerId, GlobalPlayerInfo>, // Registry of all players across all chains
+    pub global_markets: MapView<MarketId, GlobalMarketInfo>, // Registry of all markets across all chains
+    pub global_guilds: MapView<GuildId, GlobalGuildInfo>, // Registry of all guilds across all chains
+    pub global_leaderboard: RegisterView<Leaderboard>, // Aggregated leaderboard across all chains
+    // Chain registry for cross-chain messaging
+    pub subscribed_chains: MapView<ChainId, Timestamp>, // Registry of chains that have the application
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+/// Global player information for cross-chain coordination
+#[derive(Debug, Clone, Serialize, Deserialize, async_graphql::SimpleObject)]
+pub struct GlobalPlayerInfo {
+    pub player_id: PlayerId,
+    pub display_name: Option<String>,
+    pub chain_id: ChainId,
+    pub total_earned: Amount,
+    pub total_profit: Amount,
+    pub level: u32,
+    pub last_updated: Timestamp,
+}
+
+/// Global market information for cross-chain coordination
+#[derive(Debug, Clone, Serialize, Deserialize, async_graphql::SimpleObject)]
+pub struct GlobalMarketInfo {
+    pub market_id: MarketId,
+    pub creator: PlayerId,
+    pub title: String,
+    pub chain_id: ChainId,
+    pub status: MarketStatus,
+    pub created_at: Timestamp,
+}
+
+/// Global guild information for cross-chain coordination
+#[derive(Debug, Clone, Serialize, Deserialize, async_graphql::SimpleObject)]
+pub struct GlobalGuildInfo {
+    pub guild_id: GuildId,
+    pub name: String,
+    pub founder: PlayerId,
+    pub chain_id: ChainId,
+    pub member_count: u32,
+    pub total_guild_profit: Amount,
+    pub created_at: Timestamp,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Message {
+    // Local events (same chain)
     MarketCreated {
         market_id: MarketId,
         creator: PlayerId,
@@ -317,5 +360,47 @@ pub enum Message {
         player_id: PlayerId,
         period: PredictionPeriod,
         correct: bool,
+    },
+    // Cross-chain messages for horizontal scaling
+    GlobalMarketCreated {
+        market_id: MarketId,
+        creator: PlayerId,
+        title: String,
+        chain_id: ChainId,
+    },
+    GlobalPlayerRegistered {
+        player_id: PlayerId,
+        display_name: Option<String>,
+        chain_id: ChainId,
+    },
+    GlobalPlayerUpdated {
+        player_id: PlayerId,
+        total_earned: Amount,
+        total_profit: Amount,
+        level: u32,
+        chain_id: ChainId,
+    },
+    GlobalGuildCreated {
+        guild_id: GuildId,
+        name: String,
+        founder: PlayerId,
+        chain_id: ChainId,
+    },
+    GlobalLeaderboardUpdate {
+        player_id: PlayerId,
+        total_profit: Amount,
+        win_rate: f64,
+        level: u32,
+        chain_id: ChainId,
+    },
+    GlobalPriceUpdate {
+        price: Amount,
+        timestamp: Timestamp,
+        chain_id: ChainId,
+    },
+    // Chain registration for cross-chain coordination
+    ChainRegistered {
+        chain_id: ChainId,
+        timestamp: Timestamp,
     },
 }
