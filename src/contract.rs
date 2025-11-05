@@ -220,34 +220,58 @@ impl Contract for PredictionMarketContract {
                 creator,
                 title,
                 chain_id,
+                message_id,
             } => {
-                // Update global market registry
-                let global_market = GlobalMarketInfo {
-                    market_id,
-                    creator,
-                    title,
-                    chain_id,
-                    status: MarketStatus::Active,
-                    created_at: self.runtime.system_time(),
-                };
-                let _ = self.state.global_markets.insert(&market_id, global_market);
+                // Idempotency check: Skip if message already processed
+                if self.is_message_processed(&message_id).await {
+                    return; // Message already processed, skip
+                }
+
+                // Idempotency check: Only create if market doesn't already exist
+                if self.state.global_markets.get(&market_id).await.ok().flatten().is_none() {
+                    // Update global market registry
+                    let global_market = GlobalMarketInfo {
+                        market_id,
+                        creator,
+                        title,
+                        chain_id,
+                        status: MarketStatus::Active,
+                        created_at: self.runtime.system_time(),
+                    };
+                    let _ = self.state.global_markets.insert(&market_id, global_market);
+                }
+
+                // Mark message as processed
+                let _ = self.mark_message_processed(&message_id).await;
             }
             Message::GlobalPlayerRegistered {
                 player_id,
                 display_name,
                 chain_id,
+                message_id,
             } => {
-                // Update global player registry
-                let global_player = GlobalPlayerInfo {
-                    player_id,
-                    display_name,
-                    chain_id,
-                    total_earned: Amount::ZERO,
-                    total_profit: Amount::ZERO,
-                    level: 1,
-                    last_updated: self.runtime.system_time(),
-                };
-                let _ = self.state.global_players.insert(&player_id, global_player);
+                // Idempotency check: Skip if message already processed
+                if self.is_message_processed(&message_id).await {
+                    return; // Message already processed, skip
+                }
+
+                // Idempotency check: Only register if player doesn't already exist
+                if self.state.global_players.get(&player_id).await.ok().flatten().is_none() {
+                    // Update global player registry
+                    let global_player = GlobalPlayerInfo {
+                        player_id,
+                        display_name,
+                        chain_id,
+                        total_earned: Amount::ZERO,
+                        total_profit: Amount::ZERO,
+                        level: 1,
+                        last_updated: self.runtime.system_time(),
+                    };
+                    let _ = self.state.global_players.insert(&player_id, global_player);
+                }
+
+                // Mark message as processed
+                let _ = self.mark_message_processed(&message_id).await;
             }
             Message::GlobalPlayerUpdated {
                 player_id,
@@ -255,36 +279,62 @@ impl Contract for PredictionMarketContract {
                 total_profit,
                 level,
                 chain_id,
+                timestamp,
+                message_id,
             } => {
-                // Update global player info
-                if let Some(mut global_player) = self.state.global_players.get(&player_id).await.ok().flatten() {
-                    global_player.total_earned = total_earned;
-                    global_player.total_profit = total_profit;
-                    global_player.level = level;
-                    global_player.chain_id = chain_id;
-                    global_player.last_updated = self.runtime.system_time();
-                    let _ = self.state.global_players.insert(&player_id, global_player);
+                // Idempotency check: Skip if message already processed
+                if self.is_message_processed(&message_id).await {
+                    return; // Message already processed, skip
                 }
-                // Update global leaderboard
-                self.update_global_leaderboard().await;
+
+                // Update global player info with timestamp-based conflict resolution
+                if let Some(mut global_player) = self.state.global_players.get(&player_id).await.ok().flatten() {
+                    // Only update if incoming data is newer (timestamp-based conflict resolution)
+                    if timestamp > global_player.last_updated {
+                        global_player.total_earned = total_earned;
+                        global_player.total_profit = total_profit;
+                        global_player.level = level;
+                        global_player.chain_id = chain_id;
+                        global_player.last_updated = timestamp; // Use message timestamp, not local time
+                        let _ = self.state.global_players.insert(&player_id, global_player);
+                        // Update global leaderboard
+                        self.update_global_leaderboard().await;
+                    }
+                    // If timestamp is older or equal, ignore the update (already have newer data)
+                }
+
+                // Mark message as processed
+                let _ = self.mark_message_processed(&message_id).await;
             }
             Message::GlobalGuildCreated {
                 guild_id,
                 name,
                 founder,
                 chain_id,
+                message_id,
             } => {
-                // Update global guild registry
-                let global_guild = GlobalGuildInfo {
-                    guild_id,
-                    name,
-                    founder,
-                    chain_id,
-                    member_count: 1,
-                    total_guild_profit: Amount::ZERO,
-                    created_at: self.runtime.system_time(),
-                };
-                let _ = self.state.global_guilds.insert(&guild_id, global_guild);
+                // Idempotency check: Skip if message already processed
+                if self.is_message_processed(&message_id).await {
+                    return; // Message already processed, skip
+                }
+
+                // Idempotency check: Only create if guild doesn't already exist
+                if self.state.global_guilds.get(&guild_id).await.ok().flatten().is_none() {
+                    // Update global guild registry
+                    let global_guild = GlobalGuildInfo {
+                        guild_id,
+                        name,
+                        founder,
+                        chain_id,
+                        member_count: 1,
+                        total_guild_profit: Amount::ZERO,
+                        created_at: self.runtime.system_time(),
+                    };
+                    let _ = self.state.global_guilds.insert(&guild_id, global_guild);
+                }
+
+                // Mark message as processed
+                let _ = self.mark_message_processed(&message_id).await;
             }
             Message::GlobalLeaderboardUpdate {
                 player_id,
@@ -296,10 +346,23 @@ impl Contract for PredictionMarketContract {
                 // Update global leaderboard with cross-chain data
                 self.update_global_leaderboard_with_player(player_id, total_profit, win_rate, level).await;
             }
-            Message::GlobalPriceUpdate { price, timestamp, chain_id: _ } => {
-                // Update global price (propagate across chains)
-                let market_price = MarketPrice { price, timestamp };
-                self.state.current_market_price.set(market_price);
+            Message::GlobalPriceUpdate { price, timestamp, chain_id: _, message_id } => {
+                // Idempotency check: Skip if message already processed
+                if self.is_message_processed(&message_id).await {
+                    return; // Message already processed, skip
+                }
+
+                // Price timestamp validation: Only update if incoming price is newer
+                let current_price = self.state.current_market_price.get();
+                if timestamp > current_price.timestamp {
+                    // Update global price (propagate across chains)
+                    let market_price = MarketPrice { price, timestamp };
+                    self.state.current_market_price.set(market_price);
+                }
+                // If timestamp is older or equal, ignore the update (already have newer price)
+
+                // Mark message as processed
+                let _ = self.mark_message_processed(&message_id).await;
             }
             Message::ChainRegistered { chain_id, timestamp } => {
                 // Register a new chain that has the application
@@ -2162,6 +2225,34 @@ impl PredictionMarketContract {
     // Cross-Chain Broadcasting Functions (Horizontal Scaling)
     // ============================================================================
 
+    /// Generate a unique message ID for deduplication
+    /// Uses a combination of message type, content hash, chain_id, and timestamp
+    fn generate_message_id(&mut self, message_type: &str, content: &str) -> String {
+        let chain_id = self.runtime.chain_id();
+        let timestamp = self.runtime.system_time();
+        format!("{}:{}:{}:{}", message_type, chain_id, timestamp.micros(), content)
+    }
+
+    /// Check if a message has already been processed (idempotency check)
+    async fn is_message_processed(&self, message_id: &str) -> bool {
+        self.state
+            .processed_message_ids
+            .get(message_id)
+            .await
+            .ok()
+            .flatten()
+            .is_some()
+    }
+
+    /// Mark a message as processed
+    async fn mark_message_processed(&mut self, message_id: &str) -> Result<(), ContractError> {
+        let timestamp = self.runtime.system_time();
+        self.state
+            .processed_message_ids
+            .insert(message_id, timestamp)?;
+        Ok(())
+    }
+
     /// Ensure this chain is registered in the chain registry for cross-chain coordination
     async fn ensure_chain_registered(&mut self) {
         let chain_id = self.runtime.chain_id();
@@ -2219,6 +2310,12 @@ impl PredictionMarketContract {
         display_name: Option<String>,
     ) {
         let chain_id = self.runtime.chain_id();
+        let current_time = self.runtime.system_time();
+        
+        // Generate unique message ID for deduplication
+        let content = format!("{:?}:{:?}", player_id, display_name.as_deref().unwrap_or(""));
+        let message_id = self.generate_message_id("GlobalPlayerRegistered", &content);
+        
         // Update local global registry
         let display_name_clone = display_name.clone();
         let global_player = GlobalPlayerInfo {
@@ -2228,7 +2325,7 @@ impl PredictionMarketContract {
             total_earned: Amount::ZERO,
             total_profit: Amount::ZERO,
             level: 1,
-            last_updated: self.runtime.system_time(),
+            last_updated: current_time,
         };
         let _ = self.state.global_players.insert(&player_id, global_player);
 
@@ -2237,6 +2334,7 @@ impl PredictionMarketContract {
             player_id,
             display_name: display_name_clone,
             chain_id,
+            message_id,
         })
         .await;
     }
@@ -2249,6 +2347,12 @@ impl PredictionMarketContract {
         title: String,
     ) {
         let chain_id = self.runtime.chain_id();
+        let current_time = self.runtime.system_time();
+        
+        // Generate unique message ID for deduplication
+        let content = format!("{}:{:?}", market_id, creator);
+        let message_id = self.generate_message_id("GlobalMarketCreated", &content);
+        
         // Update local global registry
         let global_market = GlobalMarketInfo {
             market_id,
@@ -2256,7 +2360,7 @@ impl PredictionMarketContract {
             title: title.clone(),
             chain_id,
             status: MarketStatus::Active,
-            created_at: self.runtime.system_time(),
+            created_at: current_time,
         };
         let _ = self.state.global_markets.insert(&market_id, global_market);
 
@@ -2266,6 +2370,7 @@ impl PredictionMarketContract {
             creator,
             title,
             chain_id,
+            message_id,
         })
         .await;
     }
@@ -2278,6 +2383,12 @@ impl PredictionMarketContract {
         founder: PlayerId,
     ) {
         let chain_id = self.runtime.chain_id();
+        let current_time = self.runtime.system_time();
+        
+        // Generate unique message ID for deduplication
+        let content = format!("{}:{:?}", guild_id, founder);
+        let message_id = self.generate_message_id("GlobalGuildCreated", &content);
+        
         // Update local global registry
         let global_guild = GlobalGuildInfo {
             guild_id,
@@ -2286,7 +2397,7 @@ impl PredictionMarketContract {
             chain_id,
             member_count: 1,
             total_guild_profit: Amount::ZERO,
-            created_at: self.runtime.system_time(),
+            created_at: current_time,
         };
         let _ = self.state.global_guilds.insert(&guild_id, global_guild);
 
@@ -2296,6 +2407,7 @@ impl PredictionMarketContract {
             name,
             founder,
             chain_id,
+            message_id,
         })
         .await;
     }
@@ -2309,13 +2421,19 @@ impl PredictionMarketContract {
         level: u32,
     ) {
         let chain_id = self.runtime.chain_id();
+        let current_time = self.runtime.system_time();
+        
+        // Generate unique message ID for deduplication
+        let content = format!("{:?}:{}:{}:{}", player_id, total_earned, total_profit, level);
+        let message_id = self.generate_message_id("GlobalPlayerUpdated", &content);
+        
         // Update local global registry
         if let Some(mut global_player) = self.state.global_players.get(&player_id).await.ok().flatten() {
             global_player.total_earned = total_earned;
             global_player.total_profit = total_profit;
             global_player.level = level;
             global_player.chain_id = chain_id;
-            global_player.last_updated = self.runtime.system_time();
+            global_player.last_updated = current_time;
             let _ = self.state.global_players.insert(&player_id, global_player);
         }
 
@@ -2326,6 +2444,8 @@ impl PredictionMarketContract {
             total_profit,
             level,
             chain_id,
+            timestamp: current_time, // Include timestamp for conflict resolution
+            message_id,
         })
         .await;
     }
@@ -2333,11 +2453,17 @@ impl PredictionMarketContract {
     /// Broadcast price update to all chains for horizontal scaling
     async fn broadcast_global_price_update(&mut self, price: Amount, timestamp: Timestamp) {
         let chain_id = self.runtime.chain_id();
+        
+        // Generate unique message ID for deduplication
+        let content = format!("{}:{}", price, timestamp.micros());
+        let message_id = self.generate_message_id("GlobalPriceUpdate", &content);
+        
         // Broadcast to all subscribed chains (proper cross-chain messaging)
         self.broadcast_to_all_chains(Message::GlobalPriceUpdate {
             price,
             timestamp,
             chain_id,
+            message_id,
         })
         .await;
     }

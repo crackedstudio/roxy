@@ -284,6 +284,8 @@ pub struct PredictionMarketState {
     pub global_leaderboard: RegisterView<Leaderboard>, // Aggregated leaderboard across all chains
     // Chain registry for cross-chain messaging
     pub subscribed_chains: MapView<ChainId, Timestamp>, // Registry of chains that have the application
+    // Message deduplication tracking for idempotency
+    pub processed_message_ids: MapView<String, Timestamp>, // Track processed messages by message_id to prevent duplicates
 }
 
 /// Global player information for cross-chain coordination
@@ -367,11 +369,13 @@ pub enum Message {
         creator: PlayerId,
         title: String,
         chain_id: ChainId,
+        message_id: String, // Unique message ID for deduplication
     },
     GlobalPlayerRegistered {
         player_id: PlayerId,
         display_name: Option<String>,
         chain_id: ChainId,
+        message_id: String, // Unique message ID for deduplication
     },
     GlobalPlayerUpdated {
         player_id: PlayerId,
@@ -379,12 +383,15 @@ pub enum Message {
         total_profit: Amount,
         level: u32,
         chain_id: ChainId,
+        timestamp: Timestamp, // Timestamp of when the update occurred (for conflict resolution)
+        message_id: String, // Unique message ID for deduplication
     },
     GlobalGuildCreated {
         guild_id: GuildId,
         name: String,
         founder: PlayerId,
         chain_id: ChainId,
+        message_id: String, // Unique message ID for deduplication
     },
     GlobalLeaderboardUpdate {
         player_id: PlayerId,
@@ -397,6 +404,7 @@ pub enum Message {
         price: Amount,
         timestamp: Timestamp,
         chain_id: ChainId,
+        message_id: String, // Unique message ID for deduplication
     },
     // Chain registration for cross-chain coordination
     ChainRegistered {
