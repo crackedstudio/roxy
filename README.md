@@ -180,6 +180,7 @@ Earn rewards for completing specific milestones:
   - Timestamp-based conflict resolution prevents race conditions
   - Idempotent operations safe to retry
   - Message authentication ensures integrity
+- **Fuzz Testing**: Property-based and coverage-guided fuzzing to find edge cases and vulnerabilities
 
 ##  Economic Model
 
@@ -1399,6 +1400,35 @@ cargo test
 ```
 
 See `QUICK_START.md` for detailed Docker setup instructions.
+
+### 11.7 Fuzz Testing
+
+The project includes fuzzing capabilities to find bugs and security vulnerabilities:
+
+**Property-Based Testing (proptest):**
+```bash
+# Run property-based fuzz tests
+cargo test --test fuzz_tests
+
+# Or in Docker
+docker-compose exec roxy-dev cargo test --test fuzz_tests
+```
+
+**What Gets Fuzzed:**
+- Real contract operations (player registration, market creation, trading, predictions, guilds)
+- Operation input validation (fees 0-100, amounts, strings)
+- State transitions (player operations, market trading)
+- Arithmetic operations (overflow/underflow protection)
+- Edge cases (boundaries, invalid inputs)
+- State invariants:
+  - Total supply never negative
+  - Total supply consistent with mint/spend operations
+  - Balances never negative
+- Cross-chain message handling:
+  - Message deduplication (through operations on multiple chains)
+  - Timestamp-based conflict resolution (through price updates)
+
+
 
 ---
 

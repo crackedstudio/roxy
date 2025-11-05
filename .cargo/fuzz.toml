@@ -1,0 +1,12 @@
+# Configuration for cargo-fuzz
+
+[target]
+# Use libFuzzer (default)
+# Can also use afl, honggfuzz, etc.
+
+[target.'cfg(target_os = "linux")']
+# Linux-specific settings
+
+[target.'cfg(target_os = "macos")']
+# macOS-specific settings
+

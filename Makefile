@@ -69,6 +69,10 @@ docker-build-prod:
 docker-run-prod:
 	docker run -p 8080:8080 roxy:latest
 
+# Fuzzing
+fuzz-proptest:
+	cargo test --test fuzz_tests
+
 # CI/CD helpers
-ci-build: fmt-check clippy build build-wasm test
+ci-build: fmt-check clippy build build-wasm test fuzz-proptest
 

@@ -7,16 +7,18 @@ edition = "2021"
 async-graphql = { version = "=7.0.17", default-features = false }
 async-graphql-parser = "=7.0.17"
 async-graphql-derive = "=7.0.17"
-linera-sdk = "0.15.3"
-linera-views = "0.15.3"
+linera-sdk = "0.15.5"
+linera-views = "0.15.5"
 futures = { version = "0.3" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
 thiserror = "1.0"
 
 [dev-dependencies]
-linera-sdk = { version = "0.15.3", features = ["test", "wasmer"] }
+linera-sdk = { version = "0.15.5", features = ["test", "wasmer"] }
 tokio = { version = "1.40", features = ["rt", "sync"] }
+proptest = "1.4"
+arbitrary = { version = "1.3", features = ["derive"] }
 
 [[bin]]
 name = "predictive_manager_contract"
@@ -31,3 +33,10 @@ debug = true
 lto = true
 opt-level = 'z'
 strip = 'debuginfo'
+
+# Fuzzing profile (for property-based testing)
+[profile.fuzz]
+inherits = "dev"
+debug = true
+opt-level = 1
+overflow-checks = true
