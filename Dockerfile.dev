@@ -1,0 +1,32 @@
+# Development Dockerfile for Roxy Price
+# This image includes all tools needed for development and testing
+
+FROM rust:1.86.0-slim
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    protobuf-compiler \
+    git \
+    curl \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install wasm32 target
+RUN rustup target add wasm32-unknown-unknown
+
+# Install additional Rust tools
+RUN rustup component add clippy rustfmt rust-src
+
+# Set working directory
+WORKDIR /app
+
+# Set environment variables
+ENV RUST_LOG=debug
+ENV RUST_BACKTRACE=1
+ENV CARGO_TERM_COLOR=always
+
+# Default command (keep container running)
+CMD ["tail", "-f", "/dev/null"]
+

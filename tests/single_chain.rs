@@ -2245,20 +2245,23 @@ async fn test_horizontal_scaling_cross_chain() {
     // Note: In Linera test environment, each chain maintains its own global registry.
     // The infrastructure is in place for horizontal scaling - messages are sent to synchronize state.
     // In production with proper cross-chain routing, all chains would see aggregated state.
-    
+
     // Query global players from chain1 - verify the endpoint exists
     let QueryOutcome {
         response: global_players_response,
         ..
     } = chain1
-        .graphql_query(application_id, "query { globalPlayers { playerId displayName level } }")
+        .graphql_query(
+            application_id,
+            "query { globalPlayers { playerId displayName level } }",
+        )
         .await;
     // The endpoint should exist (returns Some) - this verifies horizontal scaling infrastructure
     assert!(
         global_players_response.get("globalPlayers").is_some(),
         "Global players query endpoint should exist (horizontal scaling infrastructure)"
     );
-    
+
     // The registry may be empty in test environment, but the infrastructure is there
     if let Some(players) = global_players_response["globalPlayers"].as_array() {
         // If we have players, great! If not, that's okay - the infrastructure is verified
@@ -2270,7 +2273,10 @@ async fn test_horizontal_scaling_cross_chain() {
         response: global_players_response2,
         ..
     } = chain2
-        .graphql_query(application_id, "query { globalPlayers { playerId displayName level } }")
+        .graphql_query(
+            application_id,
+            "query { globalPlayers { playerId displayName level } }",
+        )
         .await;
     assert!(
         global_players_response2.get("globalPlayers").is_some(),
@@ -2282,7 +2288,10 @@ async fn test_horizontal_scaling_cross_chain() {
         response: global_guilds_response,
         ..
     } = chain2
-        .graphql_query(application_id, "query { globalGuilds { guildId name founder } }")
+        .graphql_query(
+            application_id,
+            "query { globalGuilds { guildId name founder } }",
+        )
         .await;
     assert!(
         global_guilds_response.get("globalGuilds").is_some(),
@@ -2294,10 +2303,15 @@ async fn test_horizontal_scaling_cross_chain() {
         response: global_leaderboard_response,
         ..
     } = chain3
-        .graphql_query(application_id, "query { globalLeaderboard { topTraders { playerId displayName } } }")
+        .graphql_query(
+            application_id,
+            "query { globalLeaderboard { topTraders { playerId displayName } } }",
+        )
         .await;
     assert!(
-        global_leaderboard_response.get("globalLeaderboard").is_some(),
+        global_leaderboard_response
+            .get("globalLeaderboard")
+            .is_some(),
         "Global leaderboard query endpoint should exist (horizontal scaling infrastructure)"
     );
 
@@ -2355,7 +2369,10 @@ async fn test_cross_chain_market_creation() {
         response: global_markets_response,
         ..
     } = chain1
-        .graphql_query(application_id, "query { globalMarkets { marketId title creator } }")
+        .graphql_query(
+            application_id,
+            "query { globalMarkets { marketId title creator } }",
+        )
         .await;
     assert!(global_markets_response.get("globalMarkets").is_some());
 
@@ -2364,7 +2381,10 @@ async fn test_cross_chain_market_creation() {
         response: global_markets_response2,
         ..
     } = chain2
-        .graphql_query(application_id, "query { globalMarkets { marketId title creator } }")
+        .graphql_query(
+            application_id,
+            "query { globalMarkets { marketId title creator } }",
+        )
         .await;
     assert!(global_markets_response2.get("globalMarkets").is_some());
 
@@ -2526,6 +2546,6 @@ async fn test_cross_chain_price_updates() {
 
     // Both chains should have access to updated price
     // The global price update message should propagate
-    
+
     println!("✓ Cross-chain price update test passed");
 }

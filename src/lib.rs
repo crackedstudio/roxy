@@ -9,9 +9,9 @@ pub mod state;
 
 // Re-export types for convenience
 pub use state::{
-    AchievementId, GameConfig, GlobalGuildInfo, GlobalMarketInfo, GlobalPlayerInfo, Guild,
-    GuildId, Leaderboard, Market, MarketId, MarketStatus, MarketType, OutcomeId, Player,
-    PlayerId, PlayerPrediction, PredictionPeriod, PriceOutcome, ResolutionMethod,
+    AchievementId, GameConfig, GlobalGuildInfo, GlobalMarketInfo, GlobalPlayerInfo, Guild, GuildId,
+    Leaderboard, Market, MarketId, MarketStatus, MarketType, OutcomeId, Player, PlayerId,
+    PlayerPrediction, PredictionPeriod, PriceOutcome, ResolutionMethod,
 };
 
 pub struct PredictiveManagerAbi;

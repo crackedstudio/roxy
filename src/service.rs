@@ -359,7 +359,9 @@ impl QueryRoot {
                 Ok(())
             })
             .await
-            .map_err(|e| async_graphql::Error::new(format!("Failed to iterate global players: {:?}", e)))?;
+            .map_err(|e| {
+                async_graphql::Error::new(format!("Failed to iterate global players: {:?}", e))
+            })?;
         Ok(players)
     }
 
@@ -378,7 +380,9 @@ impl QueryRoot {
                 Ok(())
             })
             .await
-            .map_err(|e| async_graphql::Error::new(format!("Failed to iterate global markets: {:?}", e)))?;
+            .map_err(|e| {
+                async_graphql::Error::new(format!("Failed to iterate global markets: {:?}", e))
+            })?;
         Ok(markets)
     }
 
@@ -397,7 +401,9 @@ impl QueryRoot {
                 Ok(())
             })
             .await
-            .map_err(|e| async_graphql::Error::new(format!("Failed to iterate global guilds: {:?}", e)))?;
+            .map_err(|e| {
+                async_graphql::Error::new(format!("Failed to iterate global guilds: {:?}", e))
+            })?;
         Ok(guilds)
     }
 }

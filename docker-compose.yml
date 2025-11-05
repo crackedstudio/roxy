@@ -1,0 +1,42 @@
+services:
+  # Development service - for building and testing
+  roxy-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    volumes:
+      - .:/app
+      - cargo-cache:/usr/local/cargo/registry
+      - target-cache:/app/target
+    working_dir: /app
+    command: tail -f /dev/null  # Keep container running for development
+    environment:
+      - RUST_LOG=debug
+      - RUST_BACKTRACE=1
+      # Limit parallel compilation to reduce memory usage
+      - CARGO_BUILD_JOBS=2
+      # Use incremental compilation
+      - CARGO_INCREMENTAL=1
+    stdin_open: true
+    tty: true
+
+
+  # Production service - runs the built application
+  roxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"  # Adjust port as needed for your service
+    environment:
+      - RUST_LOG=info
+      - RUST_BACKTRACE=1
+    volumes:
+      - ./config.json:/app/config.json:ro
+    restart: unless-stopped
+
+volumes:
+  cargo-cache:
+  target-cache:
+

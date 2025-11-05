@@ -1,0 +1,11 @@
+# Cargo configuration for Docker builds
+# Limits parallel jobs to reduce memory usage
+
+[build]
+# Limit parallel compilation jobs to reduce memory pressure
+jobs = 2
+
+[target.wasm32-unknown-unknown]
+# Optimize WASM builds
+rustflags = ["-C", "opt-level=z"]
+

@@ -1,0 +1,33 @@
+# Git
+.git
+.gitignore
+.github
+
+# Rust
+target/
+# Cargo.lock - needed for reproducible builds
+# Cargo.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation
+*.md
+!README.md
+
+# Tests - keep for build (needed for cargo build)
+# Commented out so tests are included in build context
+# tests/
+
+# Temporary files
+*.tmp
+*.log
+

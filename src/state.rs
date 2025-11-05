@@ -384,7 +384,7 @@ pub enum Message {
         level: u32,
         chain_id: ChainId,
         timestamp: Timestamp, // Timestamp of when the update occurred (for conflict resolution)
-        message_id: String, // Unique message ID for deduplication
+        message_id: String,   // Unique message ID for deduplication
     },
     GlobalGuildCreated {
         guild_id: GuildId,
