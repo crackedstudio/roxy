@@ -1,17 +1,17 @@
 //! Property-based fuzz tests using proptest
 //! These tests use property-based testing to find edge cases and bugs
-//! 
+//!
 //! These tests actually interact with the real contract code, executing
 //! real operations and verifying invariants hold.
 
 #![cfg(not(target_arch = "wasm32"))]
 
-use proptest::prelude::*;
 use linera_sdk::{
     linera_base_types::Amount,
-    test::{TestValidator, QueryOutcome},
+    test::{QueryOutcome, TestValidator},
 };
 use predictive_manager::{GameConfig, Operation, PriceOutcome};
+use proptest::prelude::*;
 
 // Configure proptest to run fewer cases for faster execution
 // For more thorough testing, increase 'cases' to 256 or higher
@@ -60,7 +60,7 @@ proptest! {
             let total_supply_str = response["totalSupply"]
                 .as_str()
                 .expect("totalSupply should exist");
-            
+
             // Verify total supply is valid (invariant: supply >= 0)
             let total_supply = total_supply_str.parse::<u128>().unwrap_or(0);
             assert!(total_supply >= 0);
@@ -134,7 +134,7 @@ proptest! {
             let total_supply_str = response["totalSupply"]
                 .as_str()
                 .expect("totalSupply should exist");
-            
+
             // Verify total supply is valid (invariant: supply >= 0)
             let total_supply = total_supply_str.parse::<u128>().unwrap_or(0);
             assert!(total_supply >= 0);
@@ -222,7 +222,7 @@ proptest! {
             let total_supply_str = response["totalSupply"]
                 .as_str()
                 .expect("totalSupply should exist");
-            
+
             // Verify total supply is valid (invariant: supply >= 0)
             let total_supply = total_supply_str.parse::<u128>().unwrap_or(0);
             assert!(total_supply >= 0);
@@ -305,7 +305,7 @@ proptest! {
             let total_supply_str = response["totalSupply"]
                 .as_str()
                 .expect("totalSupply should exist");
-            
+
             // Verify total supply is valid (invariant: supply >= 0)
             let total_supply = total_supply_str.parse::<u128>().unwrap_or(0);
             assert!(total_supply >= 0);
@@ -363,7 +363,7 @@ proptest! {
             let total_supply_str = response["totalSupply"]
                 .as_str()
                 .expect("totalSupply should exist");
-            
+
             // Verify total supply is valid (invariant: supply >= 0)
             let total_supply = total_supply_str.parse::<u128>().unwrap_or(0);
             assert!(total_supply >= 0);
@@ -421,7 +421,7 @@ proptest! {
             let total_supply_str = response["totalSupply"]
                 .as_str()
                 .expect("totalSupply should exist");
-            
+
             // Verify total supply is valid (invariant: supply >= 0)
             let total_supply = total_supply_str.parse::<u128>().unwrap_or(0);
             assert!(total_supply >= 0);
@@ -437,11 +437,11 @@ proptest! {
         // Test that Amount arithmetic handles edge cases
         let a1 = Amount::from_tokens(amount1);
         let a2 = Amount::from_tokens(amount2);
-        
+
         // Saturating operations should never panic
         let _sum = a1.saturating_add(a2);
         let _diff = a1.saturating_sub(a2);
-        
+
         // Verify amounts are valid
         assert!(amount1 <= u128::MAX);
         assert!(amount2 <= u128::MAX);
@@ -498,7 +498,7 @@ proptest! {
             let total_supply_str = response["totalSupply"]
                 .as_str()
                 .expect("totalSupply should exist");
-            
+
             // Verify total supply is valid (invariant: supply >= 0)
             let total_supply = total_supply_str.parse::<u128>().unwrap_or(0);
             assert!(total_supply >= 0);
@@ -808,16 +808,14 @@ proptest! {
             let total_supply_str = response["totalSupply"]
                 .as_str()
                 .expect("totalSupply should exist");
-            
+
             let total_supply = total_supply_str.parse::<u128>().unwrap_or(0);
-            
+
             // Invariant: total supply should never be negative
             assert!(total_supply >= 0, "Total supply should never be negative");
-            
+
             // Invariant: total supply should be non-negative
-            // Note: MintPoints may fail silently if caller is not admin, so we don't assert
-            // specific values. Instead, we verify the system is still functional.
-            // If a market was created, totalSupply should reflect the market creation fee (100 points)
+
             if spend_amount <= mint_amount && spend_amount >= 10000 {
                 // Market creation fee adds 100 points to total supply
                 // But we allow for the case where minting failed, so totalSupply might be 0 or 100
@@ -915,19 +913,15 @@ proptest! {
             let total_supply_str = response["totalSupply"]
                 .as_str()
                 .expect("totalSupply should exist");
-            
+
             let total_supply = total_supply_str.parse::<u128>().unwrap_or(0);
-            
+
             // Invariant: total supply >= 0
             assert!(total_supply >= 0, "Total supply should never be negative");
-            
+
             // Invariant: total supply should be non-negative
-            // Note: MintPoints may fail silently if caller is not admin, so we don't assert
-            // specific values. The key invariant is that totalSupply >= 0.
-            // If markets were created, totalSupply should reflect market creation fees (100 points each)
-            // However, markets may fail to create if player lacks balance, so we allow for that
-            let expected_min_from_fees = markets_created * 100; // Each market creation adds 100 points
-            
+
+
             assert!(
                 total_supply >= expected_min_from_fees.saturating_sub(1000), // Allow tolerance for edge cases
                 "Total supply should reflect market creation fees: total_supply={}, markets_created={}, expected_min_from_fees={}, total_minted={}, total_spent={}",
