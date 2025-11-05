@@ -78,12 +78,22 @@ Earn rewards for completing specific milestones:
 - Encourages regular player engagement
 - Configurable reward amounts
 
+###  Cross-Chain Architecture
+- **Horizontal Scaling**: Application runs on multiple Linera chains simultaneously
+- **Global State Synchronization**: Players, markets, and guilds synchronized across all chains
+- **Idempotent Messaging**: Safe message retries with duplicate detection
+- **Conflict Resolution**: Timestamp-based ordering prevents stale updates
+- **Global Leaderboards**: Aggregated rankings across all chains
+- **Reliable Broadcasting**: Messages use authentication and tracking for guaranteed delivery
+
 ##  Technical Stack
 
 - **Blockchain**: Linera Protocol v0.15.4
 - **Smart Contract Language**: Rust
 - **State Management**: Linera Views (persistent storage)
 - **Oracle Integration**: External price feed from crypto APIs
+- **Cross-Chain Messaging**: Linera's native message system with idempotency and conflict resolution
+- **Development Tools**: Docker, Docker Compose, Makefile for streamlined development
 
 ##  Getting Started
 
@@ -165,6 +175,11 @@ Earn rewards for completing specific milestones:
 - **Level Requirements**: Market creation and selling restricted by level
 - **Balance Checks**: Prevent overdraft on all transactions
 - **Fee Validation**: Market fees capped at 100%
+- **Cross-Chain Security**:
+  - Message deduplication prevents replay attacks
+  - Timestamp-based conflict resolution prevents race conditions
+  - Idempotent operations safe to retry
+  - Message authentication ensures integrity
 
 ##  Economic Model
 
@@ -1189,6 +1204,235 @@ Achievements: O(7) fixed (7 predefined achievements)
 - Periodic leaderboard snapshots (reduce recalculation frequency)
 - Lazy resolution (resolve on-demand vs. batch resolution)
 
+---
+
+## 10. Cross-Chain Architecture
+
+### 10.1 Overview
+
+Roxy Price implements a robust cross-chain messaging system that enables the application to scale horizontally across multiple Linera chains while maintaining global state consistency.
+
+### 10.2 Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Chain 1 (Roxy Instance)                    │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │  Local State: Players, Markets, Guilds (Chain 1)      │  │
+│  └────────────────────────────────────────────────────────┘  │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │  Global State: Cross-Chain Registry                    │  │
+│  │  - global_players: All players across all chains       │  │
+│  │  - global_markets: All markets across all chains       │  │
+│  │  - global_guilds: All guilds across all chains          │  │
+│  │  - subscribed_chains: Chain registry                  │  │
+│  └────────────────────────────────────────────────────────┘  │
+└───────────────────┬───────────────────────────────────────────┘
+                    │ Messages
+                    ▼
+        ┌───────────────────────┐
+        │  Linera Message Bus   │
+        │  (Authenticated &     │
+        │   Tracked Messages)   │
+        └───────────────────────┘
+                    ▲
+                    │ Messages
+┌───────────────────┴───────────────────────────────────────────┐
+│                    Chain 2 (Roxy Instance)                    │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │  Local State: Players, Markets, Guilds (Chain 2)      │  │
+│  └────────────────────────────────────────────────────────┘  │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │  Global State: Cross-Chain Registry (Synced)           │  │
+│  └────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 10.3 Key Features
+
+#### Message Deduplication
+- **Unique Message IDs**: Each cross-chain message includes a unique ID based on content, chain, and timestamp
+- **Processed Message Tracking**: `processed_message_ids` MapView tracks all processed messages
+- **Idempotent Operations**: Messages can be safely retried without side effects
+
+#### Conflict Resolution
+- **Timestamp-Based Ordering**: `GlobalPlayerUpdated` messages include timestamps
+- **Last-Write-Wins**: Only newer updates are applied (timestamp > existing `last_updated`)
+- **Price Validation**: `GlobalPriceUpdate` only applies if incoming timestamp is newer
+
+#### Idempotency Checks
+- **Player Registration**: Only registers if player doesn't already exist
+- **Market Creation**: Only creates if market doesn't already exist
+- **Guild Creation**: Only creates if guild doesn't already exist
+
+### 10.4 Message Types
+
+All cross-chain messages include:
+- `message_id`: Unique identifier for deduplication
+- `chain_id`: Source chain identifier
+- `timestamp`: For conflict resolution (where applicable)
+
+**Message Types:**
+- `GlobalPlayerRegistered`: Broadcast player registration
+- `GlobalPlayerUpdated`: Broadcast player state changes (with timestamp)
+- `GlobalMarketCreated`: Broadcast market creation
+- `GlobalGuildCreated`: Broadcast guild creation
+- `GlobalPriceUpdate`: Broadcast price updates (with timestamp validation)
+- `ChainRegistered`: Chain discovery and registration
+
+### 10.5 State Synchronization
+
+**Global Registries:**
+- `global_players`: All players across all chains with their current chain location
+- `global_markets`: All markets with their origin chain
+- `global_guilds`: All guilds with their origin chain
+- `global_leaderboard`: Aggregated leaderboard across all chains
+
+**Update Flow:**
+1. Local operation occurs on Chain A
+2. Chain A updates its local state
+3. Chain A broadcasts message to all subscribed chains
+4. Receiving chains update their global registries
+5. Global leaderboard recalculated on each chain
+
+### 10.6 Reliability
+
+- **Message Authentication**: All messages use `.with_authentication()`
+- **Message Tracking**: All messages use `.with_tracking()` for delivery guarantees
+- **Error Handling**: Proper error propagation and state consistency
+- **Network Resilience**: Safe to retry on network failures
+
+---
+
+## 11. Development Setup
+
+### 11.1 Prerequisites
+
+- Docker and Docker Compose installed
+- (Optional) Rust 1.86.0+ for local development
+- Git for version control
+
+### 11.2 Quick Start with Docker (Recommended)
+
+```bash
+# Clone the repository
+git clone <repository-url>
+cd roxy/roxy
+
+# Start development container
+docker-compose up -d roxy-dev
+
+# Access container shell
+docker-compose exec roxy-dev bash
+
+# Build and test
+cargo build --release
+cargo test --jobs 1
+```
+
+### 11.3 Docker Services
+
+- **roxy-dev**: Development container with all build tools
+  - Rust 1.86.0
+  - wasm32-unknown-unknown target
+  - clippy, rustfmt tools
+  - Volume-mounted for live code editing
+
+- **roxy**: Production container with built binaries
+  - Minimal runtime image
+  - Optimized WASM binaries
+  - Production-ready deployment
+
+### 11.4 Available Commands
+
+Using Makefile:
+```bash
+make build          # Build the project
+make test           # Run tests
+make docker-dev     # Start dev container
+make docker-shell   # Access container shell
+```
+
+Using Docker Compose:
+```bash
+docker-compose exec roxy-dev cargo build
+docker-compose exec roxy-dev cargo test --jobs 1
+docker-compose exec roxy-dev cargo clippy
+docker-compose exec roxy-dev cargo fmt --check
+```
+
+### 11.5 Memory Management
+
+For large builds, the container is configured with:
+- `CARGO_BUILD_JOBS=2`: Limits parallel compilation
+- `CARGO_INCREMENTAL=1`: Enables incremental compilation
+- `.cargo/config.toml`: Build job limits
+
+If you encounter linker errors (signal 9), try:
+```bash
+# Run with single job
+docker-compose exec roxy-dev cargo test --jobs 1
+
+# Or increase Docker Desktop memory limit to 6-8GB
+```
+
+### 11.6 Local Development (Without Docker)
+
+```bash
+# Install Rust 1.86.0
+rustup install 1.86.0
+rustup default 1.86.0
+
+# Install wasm32 target
+rustup target add wasm32-unknown-unknown
+
+# Install tools
+rustup component add clippy rustfmt rust-src
+
+# Install system dependencies (Ubuntu/Debian)
+sudo apt-get install -y pkg-config libssl-dev protobuf-compiler
+
+# Build and test
+cargo build --release
+cargo build --release --target wasm32-unknown-unknown
+cargo test
+```
+
+See `QUICK_START.md` for detailed Docker setup instructions.
+
+---
+
+## 9. Scalability Considerations
+
+### 9.1 Storage Optimization
+
+**Key Strategies**:
+- Use composite keys for predictions: `"{player_id}_{period}_{period_start}"`
+- Limit leaderboard to top 50 players and top 20 guilds
+- Period prices stored per period (not per player)
+- Achievements stored globally (not duplicated per player)
+- Message deduplication tracking to prevent unbounded growth
+
+**Storage Growth**:
+```
+Players: O(n) where n = number of players
+Markets: O(m) where m = number of markets
+Predictions: O(n × p × t) where:
+  - n = number of players
+  - p = prediction periods (3: daily/weekly/monthly)
+  - t = time periods (grows continuously)
+Guilds: O(g) where g = number of guilds
+Achievements: O(7) fixed (7 predefined achievements)
+Processed Messages: O(m) where m = cross-chain messages sent
+```
+
+**Mitigation Strategies**:
+- Implement prediction archival (move old predictions to cold storage)
+- Set max active markets per player (currently unlimited)
+- Periodic leaderboard snapshots (reduce recalculation frequency)
+- Lazy resolution (resolve on-demand vs. batch resolution)
+- Message ID expiration (TTL for old message IDs - future enhancement)
+
 ### 9.2 Computational Complexity
 
 **Operation Complexities**:
@@ -1203,6 +1447,8 @@ Achievements: O(7) fixed (7 predefined achievements)
 | ResolveExpiredPredictions | O(n × p) | n players, p periods |
 | UpdateLeaderboard | O(n log n) | Sort all players/guilds |
 | CheckAchievements | O(a) | a = number of achievements (fixed 7) |
+| BroadcastCrossChainMessage | O(c) | c = number of subscribed chains |
+| ProcessCrossChainMessage | O(1) | Message deduplication check + state update |
 
 **Performance Bottlenecks**:
 
