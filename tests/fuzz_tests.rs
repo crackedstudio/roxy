@@ -919,8 +919,8 @@ proptest! {
             // Invariant: total supply >= 0
             assert!(total_supply >= 0, "Total supply should never be negative");
 
-            // Invariant: total supply should be non-negative
 
+            let expected_min_from_fees = markets_created * 100; // Each market creation adds 100 points
 
             assert!(
                 total_supply >= expected_min_from_fees.saturating_sub(1000), // Allow tolerance for edge cases
