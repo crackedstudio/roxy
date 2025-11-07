@@ -117,7 +117,9 @@ impl Contract for PredictionMarketContract {
         });
 
         // Initialize leaderboard broadcast tracking
-        self.state.last_leaderboard_broadcast.set(self.runtime.system_time());
+        self.state
+            .last_leaderboard_broadcast
+            .set(self.runtime.system_time());
         self.state.leaderboard_update_count.set(0);
 
         // Initialize enhanced leaderboard
@@ -319,11 +321,11 @@ impl Contract for PredictionMarketContract {
                         global_player.chain_id = chain_id;
                         global_player.last_updated = timestamp; // Use message timestamp, not local time
                         let _ = self.state.global_players.insert(&player_id, global_player);
-                        
+
                         // Increment update counter for periodic broadcasting
                         let update_count = self.state.leaderboard_update_count.get();
                         self.state.leaderboard_update_count.set(update_count + 1);
-                        
+
                         // Check if we should broadcast leaderboard update periodically
                         if self.should_broadcast_leaderboard().await {
                             // Compute and broadcast leaderboard
@@ -2683,8 +2685,8 @@ impl PredictionMarketContract {
         let time_since_broadcast = current_time
             .micros()
             .saturating_sub(last_broadcast.micros());
-        let time_threshold_met = time_since_broadcast
-            >= Self::LEADERBOARD_BROADCAST_TIME_THRESHOLD_MICROS;
+        let time_threshold_met =
+            time_since_broadcast >= Self::LEADERBOARD_BROADCAST_TIME_THRESHOLD_MICROS;
 
         // Check update count threshold (10 updates)
         let update_threshold_met = *update_count >= Self::LEADERBOARD_BROADCAST_UPDATE_THRESHOLD;

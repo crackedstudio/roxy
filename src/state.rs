@@ -337,7 +337,7 @@ pub enum Message {
         leaderboard: Leaderboard, // Full leaderboard data
         chain_id: ChainId,
         timestamp: Timestamp, // Timestamp of when the leaderboard was computed (for conflict resolution)
-        message_id: String, // Unique message ID for deduplication
+        message_id: String,   // Unique message ID for deduplication
     },
     GlobalPriceUpdate {
         price: Amount,
