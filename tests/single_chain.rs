@@ -2806,9 +2806,6 @@ async fn test_leaderboard_broadcast_time_threshold() {
     // 2. The leaderboard infrastructure is set up correctly
     // 3. The system can handle time-based broadcasts when they occur
 
-    // Trigger another update
-    // In a real scenario, if 30+ seconds have passed since last broadcast,
-    // this would trigger a broadcast due to time threshold
     chain1
         .add_block(|block| {
             block.with_operation(
@@ -2849,8 +2846,4 @@ async fn test_leaderboard_broadcast_time_threshold() {
         );
     }
 
-    println!("✓ Time threshold test passed");
-    println!("  - Time threshold infrastructure verified (30 seconds)");
-    println!("  - Leaderboard broadcast logic confirmed");
-    println!("  - Note: Actual time-based broadcast requires 30+ seconds in real scenario");
 }

@@ -22,30 +22,12 @@ pub enum ContractError {
     PlayerAlreadyExists,
     #[error("daily reward already claimed")]
     DailyRewardAlreadyClaimed,
-    #[error("invalid outcome count")]
-    InvalidOutcomeCount,
-    #[error("duration too short")]
-    DurationTooShort,
     #[error("insufficient balance")]
     InsufficientBalance,
     #[error("market not active")]
     MarketNotActive,
-    #[error("market ended")]
-    MarketEnded,
     #[error("invalid outcome")]
     InvalidOutcome,
-    #[error("slippage exceeded")]
-    SlippageExceeded,
-    #[error("no position")]
-    NoPosition,
-    #[error("insufficient shares")]
-    InsufficientShares,
-    #[error("market not ready for voting")]
-    MarketNotReadyForVoting,
-    #[error("already voted")]
-    AlreadyVoted,
-    #[error("market not ended")]
-    MarketNotEnded,
     #[error("player not found")]
     PlayerNotFound,
     #[error("market not found")]
@@ -60,8 +42,6 @@ pub enum ContractError {
     NotAdmin,
     #[error("not resolved")]
     NotResolved,
-    #[error("no winnings")]
-    NoWinnings,
     #[error("insufficient level")]
     InsufficientLevel,
     #[error(transparent)]
