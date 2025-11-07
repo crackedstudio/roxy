@@ -2845,5 +2845,4 @@ async fn test_leaderboard_broadcast_time_threshold() {
             "Leaderboard should have last updated timestamp"
         );
     }
-
 }
