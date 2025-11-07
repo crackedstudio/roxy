@@ -1967,7 +1967,7 @@ async fn test_prediction_resolution_flow() {
     >()
     .await;
 
-    // Create a chain for admin/oracle
+    // Create a chain for admin
     let mut admin_chain = v.new_chain().await;
 
     // Create application (admin will be set to the deployer automatically)

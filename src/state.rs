@@ -15,12 +15,7 @@ pub struct GameConfig {
     pub initial_player_tokens: Amount,
     pub daily_login_reward: Amount,
     pub market_creation_cost: Amount,
-    pub min_market_duration_seconds: u64,
-    pub max_outcomes_per_market: usize,
-    pub oracle_voting_duration_seconds: u64,
-    pub min_oracle_voters: u32,
-    pub market_creator_fee_percent: u8,
-    pub platform_fee_percent: u8,
+    pub fee_divisor: Amount,
 }
 
 impl Default for GameConfig {
@@ -30,12 +25,7 @@ impl Default for GameConfig {
             initial_player_tokens: Amount::from_tokens(100),
             daily_login_reward: Amount::from_tokens(10),
             market_creation_cost: Amount::from_tokens(100),
-            min_market_duration_seconds: 300,
-            max_outcomes_per_market: 10,
-            oracle_voting_duration_seconds: 3600,
-            min_oracle_voters: 3,
-            market_creator_fee_percent: 2,
-            platform_fee_percent: 1,
+            fee_divisor: Amount::from_tokens(100),
         }
     }
 }
@@ -54,38 +44,12 @@ pub struct Market {
     pub total_participants: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum MarketType {
-    QuickPrediction,
-    TournamentMarket,
-    SeasonalEvent,
-    PvPChallenge {
-        challenger: PlayerId,
-        challenged: PlayerId,
-    },
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Copy, async_graphql::Enum)]
 pub enum MarketStatus {
     Active,
     Closed,
     Resolved,
     Cancelled,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Copy, PartialEq, Eq, async_graphql::Enum)]
-pub enum ResolutionMethod {
-    OracleVoting,
-    Automated,
-    CreatorDecides,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Outcome {
-    pub id: OutcomeId,
-    pub name: String,
-    pub total_shares: Amount,
-    pub current_price: Amount,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -164,22 +128,6 @@ pub struct GuildLeaderboardEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OracleVoting {
-    pub market_id: MarketId,
-    pub voting_start: Timestamp,
-    pub voting_end: Timestamp,
-    pub votes: BTreeMap<OutcomeId, WeightedVotes>,
-    pub voters: Vec<PlayerId>,
-    pub resolved: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WeightedVotes {
-    pub total_weight: u64,
-    pub voter_count: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Achievement {
     pub id: AchievementId,
     pub name: String,
@@ -237,7 +185,7 @@ pub struct PlayerPrediction {
 }
 
 /// Stores market price data at a specific timestamp
-/// Used by oracle/admin to submit actual market prices for verification
+/// Used by admin to submit actual market prices for verification
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MarketPrice {
     pub price: Amount, // Price as an Amount (using token units as price units)
@@ -255,12 +203,6 @@ pub struct PeriodPriceData {
     pub resolved: bool,
 }
 
-/// Key for storing predictions: (player_id, period_type, period_start_timestamp)
-pub type PredictionKey = (PlayerId, PredictionPeriod, Timestamp);
-
-/// Key for storing period price data: (period_type, period_start_timestamp)
-pub type PeriodKey = (PredictionPeriod, Timestamp);
-
 #[derive(RootView)]
 #[view(context = ViewStorageContext)]
 pub struct PredictionMarketState {
@@ -269,14 +211,13 @@ pub struct PredictionMarketState {
     pub players: MapView<PlayerId, Player>,
     pub leaderboard: RegisterView<Leaderboard>,
     pub guilds: MapView<GuildId, Guild>,
-    pub oracle_votes: MapView<MarketId, OracleVoting>,
     pub achievements: MapView<AchievementId, Achievement>,
     pub total_supply: RegisterView<Amount>,
     pub next_market_id: RegisterView<MarketId>,
     // Price prediction state
     pub predictions: MapView<String, PlayerPrediction>, // Key: format!("{player_id}_{period}_{period_start}")
     pub period_prices: MapView<String, PeriodPriceData>, // Key: format!("{period}_{period_start}")
-    pub current_market_price: RegisterView<MarketPrice>, // Current market price (updated by oracle)
+    pub current_market_price: RegisterView<MarketPrice>, // Current market price (updated by admin)
     // Global state for horizontal scaling (cross-chain)
     pub global_players: MapView<PlayerId, GlobalPlayerInfo>, // Registry of all players across all chains
     pub global_markets: MapView<MarketId, GlobalMarketInfo>, // Registry of all markets across all chains
@@ -286,6 +227,9 @@ pub struct PredictionMarketState {
     pub subscribed_chains: MapView<ChainId, Timestamp>, // Registry of chains that have the application
     // Message deduplication tracking for idempotency
     pub processed_message_ids: MapView<String, Timestamp>, // Track processed messages by message_id to prevent duplicates
+    // Leaderboard broadcast tracking for periodic updates
+    pub last_leaderboard_broadcast: RegisterView<Timestamp>, // Last time leaderboard was broadcast
+    pub leaderboard_update_count: RegisterView<u64>, // Counter of updates since last broadcast
 }
 
 /// Global player information for cross-chain coordination
@@ -329,10 +273,6 @@ pub enum Message {
     MarketCreated {
         market_id: MarketId,
         creator: PlayerId,
-    },
-    MarketResolved {
-        market_id: MarketId,
-        winning_outcome: OutcomeId,
     },
     TradeExecuted {
         player_id: PlayerId,
@@ -394,11 +334,10 @@ pub enum Message {
         message_id: String, // Unique message ID for deduplication
     },
     GlobalLeaderboardUpdate {
-        player_id: PlayerId,
-        total_profit: Amount,
-        win_rate: f64,
-        level: u32,
+        leaderboard: Leaderboard, // Full leaderboard data
         chain_id: ChainId,
+        timestamp: Timestamp, // Timestamp of when the leaderboard was computed (for conflict resolution)
+        message_id: String, // Unique message ID for deduplication
     },
     GlobalPriceUpdate {
         price: Amount,

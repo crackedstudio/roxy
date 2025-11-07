@@ -42,8 +42,6 @@ pub enum ContractError {
     InsufficientShares,
     #[error("market not ready for voting")]
     MarketNotReadyForVoting,
-    #[error("invalid resolution method")]
-    InvalidResolutionMethod,
     #[error("already voted")]
     AlreadyVoted,
     #[error("market not ended")]
@@ -60,8 +58,6 @@ pub enum ContractError {
     NotGuildMember,
     #[error("not admin")]
     NotAdmin,
-    #[error("oracle not ready")]
-    OracleNotReady,
     #[error("not resolved")]
     NotResolved,
     #[error("no winnings")]
@@ -119,6 +115,10 @@ impl Contract for PredictionMarketContract {
             top_guilds: Vec::new(),
             last_updated: self.runtime.system_time(),
         });
+
+        // Initialize leaderboard broadcast tracking
+        self.state.last_leaderboard_broadcast.set(self.runtime.system_time());
+        self.state.leaderboard_update_count.set(0);
 
         // Initialize enhanced leaderboard
         self.update_enhanced_leaderboard().await;
@@ -207,7 +207,6 @@ impl Contract for PredictionMarketContract {
         match message {
             // Local events (same chain)
             Message::MarketCreated { .. } => {}
-            Message::MarketResolved { .. } => {}
             Message::TradeExecuted { .. } => {}
             Message::PlayerLeveledUp { .. } => {}
             Message::AchievementUnlocked { .. } => {}
@@ -320,8 +319,20 @@ impl Contract for PredictionMarketContract {
                         global_player.chain_id = chain_id;
                         global_player.last_updated = timestamp; // Use message timestamp, not local time
                         let _ = self.state.global_players.insert(&player_id, global_player);
-                        // Update global leaderboard
-                        self.update_global_leaderboard().await;
+                        
+                        // Increment update counter for periodic broadcasting
+                        let update_count = self.state.leaderboard_update_count.get();
+                        self.state.leaderboard_update_count.set(update_count + 1);
+                        
+                        // Check if we should broadcast leaderboard update periodically
+                        if self.should_broadcast_leaderboard().await {
+                            // Compute and broadcast leaderboard
+                            self.update_global_leaderboard().await;
+                            self.broadcast_global_leaderboard().await;
+                        } else {
+                            // Just update locally without broadcasting
+                            self.update_global_leaderboard().await;
+                        }
                     }
                     // If timestamp is older or equal, ignore the update (already have newer data)
                 }
@@ -368,20 +379,26 @@ impl Contract for PredictionMarketContract {
                 let _ = self.mark_message_processed(&message_id).await;
             }
             Message::GlobalLeaderboardUpdate {
-                player_id,
-                total_profit,
-                win_rate,
-                level,
+                leaderboard,
                 chain_id: _,
+                timestamp,
+                message_id,
             } => {
-                // Update global leaderboard with cross-chain data
-                self.update_global_leaderboard_with_player(
-                    player_id,
-                    total_profit,
-                    win_rate,
-                    level,
-                )
-                .await;
+                // Idempotency check: Skip if message already processed
+                if self.is_message_processed(&message_id).await {
+                    return; // Message already processed, skip
+                }
+
+                // Update global leaderboard with timestamp-based conflict resolution
+                let current_leaderboard = self.state.global_leaderboard.get();
+                if timestamp > current_leaderboard.last_updated {
+                    // Incoming leaderboard is newer, use it
+                    self.state.global_leaderboard.set(leaderboard);
+                }
+                // If timestamp is older or equal, ignore the update (already have newer data)
+
+                // Mark message as processed
+                let _ = self.mark_message_processed(&message_id).await;
             }
             Message::GlobalPriceUpdate {
                 price,
@@ -426,6 +443,9 @@ impl Contract for PredictionMarketContract {
 // ============================================================================
 
 impl PredictionMarketContract {
+    // Leaderboard broadcast thresholds
+    const LEADERBOARD_BROADCAST_TIME_THRESHOLD_MICROS: u64 = 30_000_000; // 30 seconds
+    const LEADERBOARD_BROADCAST_UPDATE_THRESHOLD: u64 = 10; // Broadcast after 10 updates
     /// Initialize the achievement system with predefined achievements
     /// This sets up the reward system for player progression
     async fn initialize_achievements(&mut self) -> Result<(), ContractError> {
@@ -618,7 +638,7 @@ impl PredictionMarketContract {
 
     /// Create a new point trading market (Market creators must be level 5+ and have 10,000 points)
     /// Only players at level 5 or higher with at least 10,000 points can create markets
-    /// Market creation costs 100 points (goes to platform total supply)
+    /// Market creation costs are configurable (goes to platform total supply)
     /// Market creators can set their own fee percentage (0-100%) to earn from trades
     ///
     /// # Arguments
@@ -654,8 +674,9 @@ impl PredictionMarketContract {
             return Err(ContractError::InsufficientBalance);
         }
 
-        // Market creation costs 100 points
-        let creation_cost = Amount::from_tokens(100);
+        // Get market creation cost from config
+        let config = self.state.config.get();
+        let creation_cost = config.market_creation_cost;
         if player.token_balance < creation_cost {
             return Err(ContractError::InsufficientBalance);
         }
@@ -668,9 +689,11 @@ impl PredictionMarketContract {
         // Deduct creation cost from player
         player.token_balance = player.token_balance.saturating_sub(creation_cost);
         player.total_spent = player.total_spent.saturating_add(creation_cost);
+        // Update reputation for creating a market
+        player.reputation = player.reputation.saturating_add(5);
         self.state.players.insert(&creator, player)?;
 
-        // Distribute market creation fee to platform (100 points goes to total supply)
+        // Distribute market creation fee to platform (goes to total supply)
         self.distribute_market_creator_fee(creator, creation_cost)
             .await?;
 
@@ -767,7 +790,8 @@ impl PredictionMarketContract {
         let base_payment = Amount::from_tokens(base_payment_tokens);
 
         // Calculate fee based on market's fee percentage
-        let fee_divisor = 100_u128;
+        let config = self.state.config.get();
+        let fee_divisor = config.fee_divisor.into();
         let fee_tokens = base_payment_tokens
             .saturating_mul(market.fee_percent as u128)
             .saturating_div(fee_divisor);
@@ -792,6 +816,7 @@ impl PredictionMarketContract {
         let mut market_creator = self.get_player(&market.creator).await?;
         market_creator.token_balance = market_creator.token_balance.saturating_add(base_payment);
         market_creator.total_earned = market_creator.total_earned.saturating_add(base_payment);
+        market_creator.total_profit = market_creator.total_profit.saturating_add(base_payment);
         self.state.players.insert(&market.creator, market_creator)?;
 
         // Distribute the fee portion: creator keeps 98%, platform gets 2%
@@ -814,6 +839,8 @@ impl PredictionMarketContract {
         }
 
         player.markets_participated += 1;
+        // Update reputation for buying shares
+        player.reputation = player.reputation.saturating_add(1);
         self.add_experience(&mut player, 10).await?;
 
         self.state.markets.insert(&market_id, market)?;
@@ -876,7 +903,8 @@ impl PredictionMarketContract {
         }
 
         // Calculate seller fee using the market's fee percentage (set by market creator)
-        let fee_divisor = 100_u128;
+        let config = self.state.config.get();
+        let fee_divisor = config.fee_divisor.into();
         let amount_tokens: u128 = amount.into();
         let fee_tokens = amount_tokens
             .saturating_mul(market.fee_percent as u128)
@@ -914,6 +942,8 @@ impl PredictionMarketContract {
         }
 
         player.markets_participated += 1;
+        // Update reputation for selling shares
+        player.reputation = player.reputation.saturating_add(1);
         self.add_experience(&mut player, 10).await?;
 
         self.state.markets.insert(&market_id, market)?;
@@ -1295,7 +1325,8 @@ impl PredictionMarketContract {
 
         // Platform gets 2% of the creator's fee
         let platform_fee_percent = 2_u128; // 2% of creator's fee
-        let fee_divisor = 100_u128;
+        let config = self.state.config.get();
+        let fee_divisor = config.fee_divisor.into();
 
         let creator_fee_tokens: u128 = creator_fee_amount.into();
         let platform_fee_tokens = creator_fee_tokens
@@ -1308,6 +1339,7 @@ impl PredictionMarketContract {
         let mut creator_player = self.get_player(&market.creator).await?;
         creator_player.token_balance = creator_player.token_balance.saturating_add(creator_keeps);
         creator_player.total_earned = creator_player.total_earned.saturating_add(creator_keeps);
+        creator_player.total_profit = creator_player.total_profit.saturating_add(creator_keeps);
         self.state.players.insert(&market.creator, creator_player)?;
 
         // Add platform fee (2% of creator's fee) to total supply
@@ -1387,6 +1419,13 @@ impl PredictionMarketContract {
             // Check if player has enough total points for next level
             if player.experience_points >= total_points_needed {
                 player.level += 1;
+                // Emit PlayerLeveledUp event for each level up
+                self.runtime
+                    .prepare_message(Message::PlayerLeveledUp {
+                        player_id: player.id,
+                        new_level: player.level,
+                    })
+                    .send_to(self.runtime.chain_id());
                 // Don't subtract - we track total experience points, not incremental
                 // Continue checking if they can level up multiple times
             } else {
@@ -1511,7 +1550,7 @@ impl PredictionMarketContract {
     /// based on the accuracy of the prediction.
     ///
     /// IMPORTANT: All price comparisons use data from crypto API providers:
-    /// - Oracle/Admin calls update_market_price() with price from crypto API (CoinMarketCap, CoinGecko, etc.)
+    /// - Admin calls update_market_price() with price from crypto API (CoinMarketCap, CoinGecko, etc.)
     /// - Initial price is captured from crypto API when period starts
     /// - End price is captured from crypto API when period ends
     /// - Player's prediction is compared against actual outcome from crypto API price changes
@@ -1538,7 +1577,7 @@ impl PredictionMarketContract {
         outcome: PriceOutcome,
         current_time: Timestamp,
     ) -> Result<(), ContractError> {
-        let _player = self.get_player(&player_id).await?;
+        let mut player = self.get_player(&player_id).await?;
 
         // Calculate the current day period start (midnight of current day)
         let period_start = self.get_daily_period_start(current_time);
@@ -1571,12 +1610,16 @@ impl PredictionMarketContract {
             .predictions
             .insert(&prediction_key, prediction.clone())?;
 
+        // Update reputation for making a prediction
+        player.reputation = player.reputation.saturating_add(2);
+        self.state.players.insert(&player_id, player)?;
+
         // Initialize period price data if it doesn't exist
         let period_key = format!("{:?}_{}", PredictionPeriod::Daily, period_start.micros());
         if !self.state.period_prices.contains_key(&period_key).await? {
             // Capture the initial market price from crypto API when the period starts
             // This price comes from crypto API providers (CoinMarketCap, CoinGecko, etc.)
-            // via the update_market_price function called by oracle/admin
+            // via the update_market_price function called by admin
             let initial_price = self.state.current_market_price.get();
             let period_price_data = PeriodPriceData {
                 period_start,
@@ -1624,7 +1667,7 @@ impl PredictionMarketContract {
         outcome: PriceOutcome,
         current_time: Timestamp,
     ) -> Result<(), ContractError> {
-        let _player = self.get_player(&player_id).await?;
+        let mut player = self.get_player(&player_id).await?;
 
         // Calculate the current week period start (start of current week)
         let period_start = self.get_weekly_period_start(current_time);
@@ -1657,12 +1700,16 @@ impl PredictionMarketContract {
             .predictions
             .insert(&prediction_key, prediction.clone())?;
 
+        // Update reputation for making a prediction
+        player.reputation = player.reputation.saturating_add(2);
+        self.state.players.insert(&player_id, player)?;
+
         // Initialize period price data if it doesn't exist
         let period_key = format!("{:?}_{}", PredictionPeriod::Weekly, period_start.micros());
         if !self.state.period_prices.contains_key(&period_key).await? {
             // Capture the initial market price from crypto API when the period starts
             // This price comes from crypto API providers (CoinMarketCap, CoinGecko, etc.)
-            // via the update_market_price function called by oracle/admin
+            // via the update_market_price function called by admin
             let initial_price = self.state.current_market_price.get();
             let period_price_data = PeriodPriceData {
                 period_start,
@@ -1710,7 +1757,7 @@ impl PredictionMarketContract {
         outcome: PriceOutcome,
         current_time: Timestamp,
     ) -> Result<(), ContractError> {
-        let _player = self.get_player(&player_id).await?;
+        let mut player = self.get_player(&player_id).await?;
 
         // Calculate the current month period start (start of current month)
         let period_start = self.get_monthly_period_start(current_time);
@@ -1743,12 +1790,16 @@ impl PredictionMarketContract {
             .predictions
             .insert(&prediction_key, prediction.clone())?;
 
+        // Update reputation for making a prediction
+        player.reputation = player.reputation.saturating_add(2);
+        self.state.players.insert(&player_id, player)?;
+
         // Initialize period price data if it doesn't exist
         let period_key = format!("{:?}_{}", PredictionPeriod::Monthly, period_start.micros());
         if !self.state.period_prices.contains_key(&period_key).await? {
             // Capture the initial market price from crypto API when the period starts
             // This price comes from crypto API providers (CoinMarketCap, CoinGecko, etc.)
-            // via the update_market_price function called by oracle/admin
+            // via the update_market_price function called by admin
             let initial_price = self.state.current_market_price.get();
             let period_price_data = PeriodPriceData {
                 period_start,
@@ -1779,13 +1830,13 @@ impl PredictionMarketContract {
         Ok(())
     }
 
-    /// Update the current market price from crypto price API providers (Oracle/Admin only)
-    /// This function is called by an oracle or admin to update market prices from external APIs
+    /// Update the current market price from crypto price API providers (Admin only)
+    /// This function is called by an admin to update market prices from external APIs
     /// like CoinMarketCap, CoinGecko, etc.
     /// When prices are updated, the contract automatically resolves predictions for expired periods
     ///
     /// # Arguments
-    /// * `caller` - The player calling this function (must be admin/oracle)
+    /// * `caller` - The player calling this function (must be admin)
     /// * `price` - The current market price from crypto API provider (e.g., CoinMarketCap, CoinGecko)
     /// * `current_time` - Current timestamp
     ///
@@ -1795,7 +1846,7 @@ impl PredictionMarketContract {
     ///
     /// # Usage Example:
     /// ```rust
-    /// // Oracle fetches price from CoinGecko API (e.g., BTC price = $50,000)
+    /// // Admin fetches price from CoinGecko API (e.g., BTC price = $50,000)
     /// let crypto_price = Amount::from_tokens(50000); // Convert to Amount
     /// contract.update_market_price(admin_id, crypto_price, current_time).await?;
     /// ```
@@ -1807,8 +1858,8 @@ impl PredictionMarketContract {
     ) -> Result<(), ContractError> {
         let config = self.state.config.get();
 
-        // Only admin can update market prices (oracle functionality)
-        // In production, this would be called by an oracle service that fetches
+        // Only admin can update market prices
+        // In production, this would be called by an admin service that fetches
         // prices from crypto API providers like CoinMarketCap, CoinGecko, etc.
         if let Some(admin) = config.admin {
             if caller != admin {
@@ -2014,7 +2065,7 @@ impl PredictionMarketContract {
                             .insert(&period_key, period_data.clone())?;
                     }
                     // If end price is not set, set it from current crypto API price when period ends
-                    // The oracle/admin should have called update_market_price() with the latest crypto API price
+                    // The admin should have called update_market_price() with the latest crypto API price
                     if period_data.end_price.is_none() {
                         let current_price = self.state.current_market_price.get(); // From crypto API (CoinMarketCap, CoinGecko, etc.)
                         period_data.end_price = Some(current_price.clone());
@@ -2060,9 +2111,14 @@ impl PredictionMarketContract {
                         {
                             if !prediction.resolved {
                                 // Try to resolve this prediction
-                                let _ = self
+                                // This will emit PredictionResolved event if resolution succeeds
+                                if let Ok(()) = self
                                     .resolve_prediction(&mut prediction, period, period_start)
-                                    .await;
+                                    .await
+                                {
+                                    // Prediction successfully resolved and PredictionResolved event emitted
+                                    // The event is emitted inside resolve_prediction
+                                }
                                 // Note: If resolution fails (e.g., prices not ready), it will be resolved on-demand later
                             }
                         }
@@ -2093,6 +2149,16 @@ impl PredictionMarketContract {
         // Award tokens
         player.token_balance = player.token_balance.saturating_add(reward);
         player.total_earned = player.total_earned.saturating_add(reward);
+        player.total_profit = player.total_profit.saturating_add(reward);
+
+        // Update prediction win statistics
+        player.markets_won += 1;
+        player.win_streak += 1;
+        if player.win_streak > player.best_win_streak {
+            player.best_win_streak = player.win_streak;
+        }
+        // Update reputation for winning a prediction
+        player.reputation = player.reputation.saturating_add(10);
 
         // Award XP (keep XP system for progression)
         let xp_reward = match period {
@@ -2150,6 +2216,11 @@ impl PredictionMarketContract {
             player.token_balance = Amount::ZERO;
             player.total_spent = player.total_spent.saturating_add(deducted);
         }
+
+        // Reset win streak on loss
+        player.win_streak = 0;
+        // Update reputation for losing a prediction (penalty)
+        player.reputation = player.reputation.saturating_sub(5);
 
         self.state.players.insert(player_id, player)?;
 
@@ -2602,30 +2673,49 @@ impl PredictionMarketContract {
         self.state.global_leaderboard.set(global_leaderboard);
     }
 
-    /// Update global leaderboard with a specific player's data
-    async fn update_global_leaderboard_with_player(
-        &mut self,
-        player_id: PlayerId,
-        total_profit: Amount,
-        _win_rate: f64,
-        level: u32,
-    ) {
-        // Update the player's global info
-        if let Some(mut global_player) = self
-            .state
-            .global_players
-            .get(&player_id)
-            .await
-            .ok()
-            .flatten()
-        {
-            global_player.total_profit = total_profit;
-            global_player.level = level;
-            global_player.last_updated = self.runtime.system_time();
-            let _ = self.state.global_players.insert(&player_id, global_player);
-        }
+    /// Check if we should broadcast leaderboard update based on time or update count
+    async fn should_broadcast_leaderboard(&mut self) -> bool {
+        let current_time = self.runtime.system_time();
+        let last_broadcast = self.state.last_leaderboard_broadcast.get();
+        let update_count = self.state.leaderboard_update_count.get();
 
-        // Update global leaderboard
-        self.update_global_leaderboard().await;
+        // Check time threshold (30 seconds)
+        let time_since_broadcast = current_time
+            .micros()
+            .saturating_sub(last_broadcast.micros());
+        let time_threshold_met = time_since_broadcast
+            >= Self::LEADERBOARD_BROADCAST_TIME_THRESHOLD_MICROS;
+
+        // Check update count threshold (10 updates)
+        let update_threshold_met = *update_count >= Self::LEADERBOARD_BROADCAST_UPDATE_THRESHOLD;
+
+        // Broadcast if either threshold is met
+        time_threshold_met || update_threshold_met
+    }
+
+    /// Broadcast global leaderboard to all chains for horizontal scaling
+    async fn broadcast_global_leaderboard(&mut self) {
+        let chain_id = self.runtime.chain_id();
+        let current_time = self.runtime.system_time();
+
+        // Get the current global leaderboard
+        let leaderboard = self.state.global_leaderboard.get().clone();
+
+        // Generate unique message ID for deduplication
+        let content = format!("{}:{}", leaderboard.last_updated.micros(), chain_id);
+        let message_id = self.generate_message_id("GlobalLeaderboardUpdate", &content);
+
+        // Update local broadcast tracking
+        self.state.last_leaderboard_broadcast.set(current_time);
+        self.state.leaderboard_update_count.set(0); // Reset counter
+
+        // Broadcast to all subscribed chains (proper cross-chain messaging)
+        self.broadcast_to_all_chains(Message::GlobalLeaderboardUpdate {
+            leaderboard,
+            chain_id,
+            timestamp: current_time,
+            message_id,
+        })
+        .await;
     }
 }

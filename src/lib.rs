@@ -10,8 +10,8 @@ pub mod state;
 // Re-export types for convenience
 pub use state::{
     AchievementId, GameConfig, GlobalGuildInfo, GlobalMarketInfo, GlobalPlayerInfo, Guild, GuildId,
-    Leaderboard, Market, MarketId, MarketStatus, MarketType, OutcomeId, Player, PlayerId,
-    PlayerPrediction, PredictionPeriod, PriceOutcome, ResolutionMethod,
+    Leaderboard, Market, MarketId, MarketStatus, OutcomeId, Player, PlayerId,
+    PlayerPrediction, PredictionPeriod, PriceOutcome,
 };
 
 pub struct PredictiveManagerAbi;
@@ -85,7 +85,7 @@ pub enum Operation {
         outcome: PriceOutcome,
     },
 
-    // Oracle/Admin operations for price updates
+    // Admin operations for price updates
     UpdateMarketPrice {
         price: Amount,
     },
