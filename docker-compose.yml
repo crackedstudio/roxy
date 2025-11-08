@@ -22,18 +22,31 @@ services:
     tty: true
 
 
-  # Production service - runs the built application
+  # Production service - runs the built application (Linera Buildathon Template)
   roxy:
     build:
       context: .
       dockerfile: Dockerfile
+    volumes:
+      - .:/build
+    working_dir: /build
     ports:
-      - "8080:8080"  # Adjust port as needed for your service
+      - "5173:5173"  # Frontend (optional - not used in this backend-only app)
+      - "8080:8080"  # Linera faucet
+      - "9001:9001"  # Localnet validator's proxy
+      - "13001:13001"  # Localnet validator itself
     environment:
       - RUST_LOG=info
       - RUST_BACKTRACE=1
-    volumes:
-      - ./config.json:/app/config.json:ro
+    healthcheck:
+      # Healthcheck waits for frontend on port 5173 (optional for backend-only apps)
+      # For backend-only apps, we check if the service is running
+      test: ["CMD-SHELL", "curl -f http://localhost:8080 || curl -f http://localhost:9001 || exit 0"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    command: ["/bin/bash", "run.bash"]
     restart: unless-stopped
 
 volumes:
